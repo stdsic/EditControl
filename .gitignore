@@ -1,0 +1,30 @@
+*.obj
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ipch
+*.log
+*.sbr
+*.tlh, *.tli
+*.tmp
+*.bak
+Debug/
+Release/
+x64/, x86/
+ipch/
+*.opensdf
+*.sdf
+*.cache
+*.db
+.vs/
+*.VC.db
+*.VC.opendb
+*.user
+*.suo
+*.ncb
+*.sln.docstates
+packages/
+*.nupkg
+project.lock.json
+*.nuget.props, *.nuget.targets
