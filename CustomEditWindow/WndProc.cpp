@@ -49,7 +49,7 @@ int LineRatio, LineHeight;
 
 // 다음은 행 번호를 넘기면 줄의 시작과 끝 지점을 조사하는 함수이다.
 // GetLine이 주요 함수이며 FindLineEnd는 유틸리티이다.
-int FindLineEnd(WCHAR*& p);
+// int FindLineEnd(WCHAR*& p);
 void GetLine(int line, int& start, int& end);
 
 
@@ -193,7 +193,37 @@ int WordBreakProc(int pos, int start, WBPType type);
 
 // FindWrapPoint 함수는 줄 정보(start, end)를 전달 받는다.
 // 곧, GetLine 함수 내부에서 활용되며 FindLineEnd와 같은 서브 함수이다.
-// FindWrapPoint 반환한 자동 개행 지점을 GetLine의 출력 인수 start와 end에 대입하기만 하면 OnPaint 코드에 의해 자동 개행 기능이 멋들어지게 동작할 것이다.
+// FindWrapPoint가 반환한 자동 개행 지점을 GetLine의 출력 인수 start와 end에 대입하기만 하면 OnPaint 코드에 의해 자동 개행 기능이 멋들어지게 동작할 것이다.
+
+// 이제 GetLine 함수를 수정해보자.
+// FindWrapPoint는 포인터 대신 인덱스를 이용해 개행할 지점을 찾는다.
+// 문자셋이라는 개념을 추가하여 포인터가 하던 동작을 대체한 것인데
+// 포인터를 증가시키며 문자를 탐색하고, ptr - buf문으로부터 얻은 오프셋 값을 활용하던 기존 로직과 논리는 동일하다.
+
+
+// 다만, 지금 구조를 보면 GetLine -> FindLineEnd -> FindWrapPoint 순으로 함수가 호출되어야 하는데,
+// FindWrapPoint로 인해 GetLine을 호출하는 비용이 더 늘어났다.
+// GetCoordinate, GetRowAndColumn 등의 함수에서 GetLine을 항상 호출하는데,
+// 안그래도 느린 상황에 자동 개행 로직이 추가되면서 속도가 더 느려졌다.
+
+// 속도 향상을 위해 최적화가 필요한 시점이며,
+// 앞에서 언급했듯이 줄 정보 구조체를 만들어 유지/관리하면 속도를 대폭 향상시킬 수 있다.
+
+// 이제 줄 정보를 관리할 구조체를 만들어보자.
+// GetLine이 담당하던 줄 정보 조사 동작을 미리 수행하여 유지/관리할 것이므로
+// 당연히 줄의 시작 지점과 줄의 끝 지점 정보를 담아야 할 것이다.
+struct LineInfo {
+    int start, end;
+} lineInfo[0x1000];
+int MAX_LINE_COUNT = 0x1000;
+int lineCount = 0;
+
+// 당장 떠오르는 멤버 변수는 start와 end 뿐이므로 이렇게 두고 줄 정보를 조사하는 함수나 추가해보자.
+void RebuildLineInfo();
+
+// 줄 정보를 만들었으므로 GetLine 함수의 호출부를 찾아 하나씩 바꿔주면 된다.
+// GetLine 함수 역시 줄 정보를 사용할 수 있으며, 코드가 훨씬 짧아진다.
+// 또, FindLineEnd가 할 일이 없어졌는데 이제 필요 없으므로 과감하게 지워버리도록 하자.
 
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
@@ -454,6 +484,10 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     LineRatio = 120;
     LineHeight = (int)(FontHeight * LineRatio / 100);
+
+    for (int i = 0; i < MAX_LINE_COUNT; i++) {
+        lineInfo[i].start = lineInfo[i].end = -1;
+    }
     
     return 0;
 }
@@ -563,6 +597,7 @@ int GetNextOffset(int idx) {
 }
 
 // 이 아래 함수들을 이쁘게 바꿔서 쓰면 된다.
+/*
 int FindLineEnd(WCHAR*& ptr) {
     while (1) {
         if (*ptr == 0) { return 0; }
@@ -570,26 +605,88 @@ int FindLineEnd(WCHAR*& ptr) {
         ptr++;
     }
 }
+*/
+
+/*
+void GetLine(int line, int& start, int& end) {
+    WCHAR* ptr = buf;
+    int lineStart = 0, lineEnd = 0, prevEnd = 0, curLine = 0;
+
+    if (line == 0) {
+        start = lineStart = lineEnd = 0;
+        while (1) {
+            WCHAR ch = ptr[lineEnd];
+            if (ch == '\r' || ch == 0) { break; }
+            lineEnd++;
+        }
+        end = FindWrapPoint(lineStart, lineEnd);
+    }
+    else {
+        while (curLine < line) {
+            while (1) {
+                WCHAR ch = ptr[prevEnd];
+                if (ch == '\r' || ch == 0) { break; }
+                prevEnd++;
+            }
+
+            if (ptr[prevEnd] == 0) {
+                start = -1;
+                end = -1;
+                return;
+            }
+
+            if (ptr[prevEnd] == '\r') {
+                lineStart = prevEnd + 2;
+            }
+            else {
+                lineStart = prevEnd;
+            }
+
+            lineEnd = lineStart;
+
+            while (1) {
+                WCHAR ch = ptr[lineEnd];
+                if (ch == '\r' || ch == 0) { break; }
+                lineEnd++;
+            }
+
+            start = lineStart;
+            end = FindWrapPoint(lineStart, lineEnd);
+        }
+    }
+}
+*/
 
 void GetLine(int line, int& start, int& end) {
     WCHAR* ptr = buf;
-    int curLine = 0;
+    int lineStart = 0, lineEnd = 0, prevEnd = 0;
 
-    // line 번째 줄까지 이동 (CRLF 기준)
-    while (curLine != line) {
-        if (!FindLineEnd(ptr)) {
+    if (line > 0) {
+        prevEnd = lineInfo[line - 1].end;
+        if (ptr[prevEnd] == 0) {
             start = -1;
             end = -1;
             return;
         }
 
-        ptr += 2;
-        curLine++;
+        if (ptr[prevEnd] == '\r') {
+            lineStart = prevEnd + 2;
+        }
+        else {
+            lineStart = prevEnd;
+        }
+
+        lineEnd = lineStart;
     }
 
-    start = ptr - buf;
-    FindLineEnd(ptr);
-    end = ptr - buf;
+    while (1) {
+        WCHAR ch = ptr[lineEnd];
+        if (ch == '\r' || ch == 0) { break; }
+        lineEnd++;
+    }
+
+    start = lineStart;
+    end = FindWrapPoint(lineStart, lineEnd);
 }
 
 BOOL bLineEnd = FALSE;
@@ -764,6 +861,7 @@ int WordBreakProc(int pos, int start, WBPType type) {
         break;
 
     case WBP_PUNCT:
+        // 구두점일 때만 단어 단위로 정렬
         if (Previous != CC_PUNCT && (Previous == CC_KJC || Previous == CC_ALNUM)) {
             CustomCharset WordType = Previous;
             while (back > start && (GetCustomCharset(ptr[back - 1]) == WordType)) { back--; }
@@ -772,4 +870,42 @@ int WordBreakProc(int pos, int start, WBPType type) {
     }
 
     return back;
+}
+
+void RebuildLineInfo() {
+    int pos = 0;
+    lineCount = 0;
+
+    while (pos < docLength) {
+        // CRLF 탐색
+        int crlf = pos;
+        while (crlf < docLength) {
+            if (buf[crlf] == L'\r') { break; }
+            crlf++;
+        }
+
+        // 자동 개행 위치 계산 (CRLF 이전까지만)
+        int wrapEnd = FindWrapPoint(pos, crlf);
+
+        if (wrapEnd <= pos) {
+            wrapEnd = pos + 1;
+        }
+
+        // 줄 정보 저장
+        if (lineCount < MAX_LINE_COUNT) {
+            if (wrapEnd > pos) {
+                lineInfo[lineCount].start = pos;
+                lineInfo[lineCount].end = wrapEnd;
+                lineCount++;
+            }
+        }
+
+        // 다음 줄로 이동
+        if (wrapEnd == crlf) {
+            pos = crlf + 2; // CRLF 건너뛰기
+        }
+        else {
+            pos = wrapEnd;
+        }
+    }
 }
