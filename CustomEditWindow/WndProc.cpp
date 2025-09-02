@@ -70,7 +70,6 @@ int GetOffset(int row, int column);
 // 간단히 줄간을 이용해 높이를 계산하고 폭을 계산하기만 하면 된다.
 void GetCoordinate(int idx, int& x, int& y);
 // GetCoordinate에서 오류가 발생하여 이를 추적하기 위해 디버깅 메세지 함수를 추가한다.
-void DebugMessage(LPCWSTR fmt, ...);
 
 // 상하 이동(방향키)
 // 범위 확인이 필요하므로 전체 행(줄)의 수를 계산하는 함수를 추가한다.
@@ -187,6 +186,20 @@ enum CustomCharset GetCustomCharset(WCHAR ch);
 // 앞에 있는 단어 전체를 끌어다가 다음 줄로 함께 내려야 한다.
 // 반드시 그러한 것은 아니지만 이렇게 해야 줄 정보 처리가 가장 간단해진다.
 // 일단, 이러한 규칙들만 고려해서 자동 개행 함수를 만들어보자.
+
+struct WrapOptions {
+    BOOL wordWrap;
+    BOOL trimFirstSpace;
+    BOOL KeepPunctWithWord;
+    BOOL kjcCharWrap;
+} g_Option = {
+  TRUE,
+  FALSE,
+  TRUE,
+  TRUE
+};
+
+enum WBPType { WBP_WORD, WBP_PUNCT };
 RECT g_crt;
 int FindWrapPoint(int start, int end);
 int WordBreakProc(int pos, int start, WBPType type);
@@ -283,6 +296,7 @@ LRESULT OnSize(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             SetCaret();
         }
         GetClientRect(hWnd, &g_crt);
+        RebuildLineInfo();
     }
     return 0;
 
@@ -564,6 +578,7 @@ BOOL Insert(int idx, WCHAR* str) {
     memcpy(buf + idx, str, length * sizeof(WCHAR));
     docLength += length;
 
+    RebuildLineInfo();
     return TRUE;
 }
 
@@ -574,6 +589,7 @@ BOOL Delete(int idx, int cnt) {
     memmove(buf + idx, buf + idx + cnt, move * sizeof(WCHAR));
     docLength -= cnt;
 
+    RebuildLineInfo();
     return TRUE;
 }
 
@@ -692,11 +708,40 @@ void GetLine(int line, int& start, int& end) {
 BOOL bLineEnd = FALSE;
 void GetRowAndColumn(int idx, int& row, int& column) {
     WCHAR* ptr = buf;
-    int start = 0, end = 0;
     row = 0;
 
+    int left = 0;
+    int right = lineCount - 1;
+
+    while (left <= right) {
+        row = (left + right) / 2;
+
+        int start = lineInfo[row].start;
+        int end = lineInfo[row].end;
+
+        if (start < idx && end > idx) { break; }
+        if (idx == start) {
+            if (bLineEnd == TRUE && row != 0) { row--; }
+            break;
+        }
+
+        if (idx == end) {
+            if (buf[end] == 0 || buf[end] == '\r' || bLineEnd == TRUE) { break; }
+        }
+
+        if (start > idx) {
+            right = row - 1;
+        }
+        else {
+            left = row + 1;
+        }
+    }
+
+    /*
     while (1) {
-        GetLine(row, start, end);
+        start = lineInfo[row].start;
+        end = lineInfo[row].end;
+
         if (start <= idx && end < idx) { break; }
 
         if (idx == end) {
@@ -704,24 +749,27 @@ void GetRowAndColumn(int idx, int& row, int& column) {
         }
         row++;
     }
-
-    column = idx - start;
+    */
+    column = idx - lineInfo[row].start;
 }
 
 int GetOffset(int row, int column) {
-    int start, end;
-    GetLine(row, start, end);
+    int start = lineInfo[row].start;
+    int end = lineInfo[row].end;
     column = min(column, end - start);
     return column + start;
 }
 
 void GetCoordinate(int idx, int& x, int& y) {
-    int start, end, row, column;
+    int row, column;
     GetRowAndColumn(idx, row, column);
+
     y = row * LineHeight;
     x = 0;
 
-    GetLine(row, start, end);
+    int start = lineInfo[row].start;
+    int end = lineInfo[row].end;
+
     WCHAR* ptr = buf + start;
     while (ptr != buf + idx) {
         if (*ptr == '\t') {
@@ -778,20 +826,6 @@ enum CustomCharset GetCustomCharset(WCHAR ch) {
     if (IsKJCChar(ch)) { return (enum CustomCharset)CC_KJC; }
     return (enum CustomCharset)CC_OTHER;
 }
-
-struct WrapOptions {
-    BOOL wordWrap;
-    BOOL trimFirstSpace;
-    BOOL KeepPunctWithWord;
-    BOOL kjcCharWrap;
-} g_Option = {
-  TRUE,
-  FALSE,
-  TRUE,
-  TRUE
-};
-
-enum WBPType { WBP_WORD, WBP_PUNCT };
 
 int FindWrapPoint(int start, int end) {
     if (start >= end) { return start; }
@@ -873,6 +907,26 @@ int WordBreakProc(int pos, int start, WBPType type) {
 }
 
 void RebuildLineInfo() {
+    int curLine = 0, pos = 0, wrapEnd = 0;
+    int start = 0, end = 0;
+
+    // 여기서 lineCount가 제대로 증가하지 않는 현상 발생
+    // "반갑습니다 여러분\r\nㅁ -> 예문"
+    // 아래 while문에 중단점 추가 후 디버깅 필요
+    while (curLine <= lineCount) {
+        GetLine(curLine, pos, wrapEnd);
+        
+        lineInfo[lineCount].start = start;
+        lineInfo[lineCount].end = end;
+
+        if(end > )
+        if (start == -1) { lineCount = curLine; break; }
+        curLine++;
+    }
+}
+
+/*
+void RebuildLineInfo() {
     int pos = 0;
     lineCount = 0;
 
@@ -909,3 +963,4 @@ void RebuildLineInfo() {
         }
     }
 }
+*/
