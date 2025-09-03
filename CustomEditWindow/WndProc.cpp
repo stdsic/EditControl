@@ -910,16 +910,12 @@ void RebuildLineInfo() {
     int curLine = 0, pos = 0, wrapEnd = 0;
     int start = 0, end = 0;
 
-    // 여기서 lineCount가 제대로 증가하지 않는 현상 발생
-    // "반갑습니다 여러분\r\nㅁ -> 예문"
-    // 아래 while문에 중단점 추가 후 디버깅 필요
-    while (curLine <= lineCount) {
-        GetLine(curLine, pos, wrapEnd);
-        
-        lineInfo[lineCount].start = start;
-        lineInfo[lineCount].end = end;
+    while (1) {
+        GetLine(curLine, start, end);
 
-        if(end > )
+        lineInfo[curLine].start = start;
+        lineInfo[curLine].end = end;
+
         if (start == -1) { lineCount = curLine; break; }
         curLine++;
     }
