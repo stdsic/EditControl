@@ -20,7 +20,8 @@ BYTE AsciiCharWidth[128];
 BYTE HangulCharWidth;
 
 // 캐럿 생성
-void SetCaret();
+int PrevX = 0;
+void SetCaret(BOOL bUpdatePrevX = FALSE);
 void PrecomputeCharWidths();
 int GetCharWidth(WCHAR* src, int length);
 
@@ -61,6 +62,8 @@ void GetLine(int line, int& start, int& end);
 // 위 기능들을 구현하기 위해선 캐럿의 위치를 화면상의 픽셀 좌표값으로 계산할 수 있어야 한다.
 // 또, 실제로 문자를 중간에 삽입하는 등의 동작을 하려면 오프셋 값이 필요하다.
 // off의 값이 몇 번째 행의 몇 번째 열에 위치하는지 알아야 이러한 기능을 구현할 수 있으므로 일단 이와 관련된 함수부터 작성해보자
+
+BOOL bLineEnd = FALSE;
 void GetRowAndColumn(int idx, int& row, int& column);
 int GetOffset(int row, int column);
 
@@ -70,11 +73,12 @@ int GetOffset(int row, int column);
 // 간단히 줄간을 이용해 높이를 계산하고 폭을 계산하기만 하면 된다.
 void GetCoordinate(int idx, int& x, int& y);
 // GetCoordinate에서 오류가 발생하여 이를 추적하기 위해 디버깅 메세지 함수를 추가한다.
+void TraceFormat(LPCWSTR format, ...);
 
 // 상하 이동(방향키)
 // 범위 확인이 필요하므로 전체 행(줄)의 수를 계산하는 함수를 추가한다.
 // OnKeyDown 메세지에 VK_UP과 VK_DOWN case 문을 추가했다.
-int GetLineCount();
+// int GetLineCount();
 
 
 // 자동 개행
@@ -227,8 +231,9 @@ int WordBreakProc(int pos, int start, WBPType type);
 // 당연히 줄의 시작 지점과 줄의 끝 지점 정보를 담아야 할 것이다.
 struct LineInfo {
     int start, end;
-} lineInfo[0x1000];
-int MAX_LINE_COUNT = 0x1000;
+};
+LineInfo* lineInfo = NULL;
+int lineInfoSize = 0x400;
 int lineCount = 0;
 
 // 당장 떠오르는 멤버 변수는 start와 end 뿐이므로 이렇게 두고 줄 정보를 조사하는 함수나 추가해보자.
@@ -237,6 +242,13 @@ void RebuildLineInfo();
 // 줄 정보를 만들었으므로 GetLine 함수의 호출부를 찾아 하나씩 바꿔주면 된다.
 // GetLine 함수 역시 줄 정보를 사용할 수 있으며, 코드가 훨씬 짧아진다.
 // 또, FindLineEnd가 할 일이 없어졌는데 이제 필요 없으므로 과감하게 지워버리도록 하자.
+
+// 이번엔 캐럿의 이동을 보자.
+// 방향키를 이용해 캐럿을 상,하로 이동시켜보면 아주 조잡하게 움직인다는 것을 알 수 있다.
+// 일반적인 에디터 프로그램은 이전 위치를 기억하여 캐럿이 이전 줄이나 다음 줄로 이동할 오프셋값을 이용하여 같은 위치로 이동시킨다.
+// SetCaret은 GetCoordinate 함수를 호출하여 화면상의 x좌표를 구해오는데 이를 기억해두었다가
+// 캐럿 이동에 활용해보자.
+int GetDocsXPosOnLine(int row, int dest);
 
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
@@ -254,7 +266,7 @@ LRESULT OnLButtonUp(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT OnSetFocus(HWND hWnd, WPARAM wParam, LPARAM lParam) {
-    SetCaret();
+    SetCaret(FALSE);
     return 0;
 }
 
@@ -303,23 +315,24 @@ LRESULT OnSize(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 }
 LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int row = 0, column = 0;
+    int start = 0, end = 0;
 
     switch (wParam) {
     case VK_UP:
         GetRowAndColumn(off, row, column);
         if (row > 0) {
             row--;
-            off = GetOffset(row, column);
-            SetCaret();
+            off = GetDocsXPosOnLine(row, PrevX);
+            SetCaret(FALSE);
         }
         break;
 
     case VK_DOWN:
         GetRowAndColumn(off, row, column);
-        if (row < GetLineCount() - 1) {
+        if (row < lineCount - 1) {
             row++;
-            off = GetOffset(row, column);
-            SetCaret();
+            off = GetDocsXPosOnLine(row, PrevX);
+            SetCaret(FALSE);
         }
         break;
 
@@ -383,14 +396,12 @@ LRESULT OnKeyUp(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
-    int line = 0, start, end;
-    while (1) {
-        GetLine(line, start, end);
-        if (start == -1) { break; }
-        TextOut(hdc, 0, line * LineHeight, buf + start, end - start);
-        line++;
+    int start, end;
+    for (int i = 0; i < lineCount; i++) {
+        start = lineInfo[i].start;
+        end = lineInfo[i].end;
+        TextOut(hdc, 0, i * LineHeight, buf + start, end - start);
     }
-
     EndPaint(hWnd, &ps);
     return 0;
 }
@@ -499,21 +510,21 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     LineRatio = 120;
     LineHeight = (int)(FontHeight * LineRatio / 100);
 
-    for (int i = 0; i < MAX_LINE_COUNT; i++) {
-        lineInfo[i].start = lineInfo[i].end = -1;
-    }
+    lineInfoSize = 0x1000;
+    lineInfo = (LineInfo*)malloc(sizeof(LineInfo) * lineInfoSize);
+    memset(lineInfo, 0, sizeof(lineInfo) * lineInfoSize);
     
     return 0;
 }
 
 LRESULT OnDestroy(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     if (buf) { free(buf); }
+    if (lineInfo) { free(lineInfo); }
     PostQuitMessage(0);
     return 0;
 }
 
-
-void SetCaret() {
+void SetCaret(BOOL bUpdatePrevX /*= TRUE*/){
     SIZE sz;
     HDC hdc;
     int toff, x, y;
@@ -529,6 +540,8 @@ void SetCaret() {
     GetCoordinate(toff, x, y);
     SetCaretPos(x, y);
     ReleaseDC(hWndMain, hdc);
+
+    if (bUpdatePrevX) { PrevX = x; }
 }
 
 void PrecomputeCharWidths() {
@@ -612,67 +625,6 @@ int GetNextOffset(int idx) {
     return idx + 1;
 }
 
-// 이 아래 함수들을 이쁘게 바꿔서 쓰면 된다.
-/*
-int FindLineEnd(WCHAR*& ptr) {
-    while (1) {
-        if (*ptr == 0) { return 0; }
-        if (*ptr == '\r') { return 1; }
-        ptr++;
-    }
-}
-*/
-
-/*
-void GetLine(int line, int& start, int& end) {
-    WCHAR* ptr = buf;
-    int lineStart = 0, lineEnd = 0, prevEnd = 0, curLine = 0;
-
-    if (line == 0) {
-        start = lineStart = lineEnd = 0;
-        while (1) {
-            WCHAR ch = ptr[lineEnd];
-            if (ch == '\r' || ch == 0) { break; }
-            lineEnd++;
-        }
-        end = FindWrapPoint(lineStart, lineEnd);
-    }
-    else {
-        while (curLine < line) {
-            while (1) {
-                WCHAR ch = ptr[prevEnd];
-                if (ch == '\r' || ch == 0) { break; }
-                prevEnd++;
-            }
-
-            if (ptr[prevEnd] == 0) {
-                start = -1;
-                end = -1;
-                return;
-            }
-
-            if (ptr[prevEnd] == '\r') {
-                lineStart = prevEnd + 2;
-            }
-            else {
-                lineStart = prevEnd;
-            }
-
-            lineEnd = lineStart;
-
-            while (1) {
-                WCHAR ch = ptr[lineEnd];
-                if (ch == '\r' || ch == 0) { break; }
-                lineEnd++;
-            }
-
-            start = lineStart;
-            end = FindWrapPoint(lineStart, lineEnd);
-        }
-    }
-}
-*/
-
 void GetLine(int line, int& start, int& end) {
     WCHAR* ptr = buf;
     int lineStart = 0, lineEnd = 0, prevEnd = 0;
@@ -705,7 +657,6 @@ void GetLine(int line, int& start, int& end) {
     end = FindWrapPoint(lineStart, lineEnd);
 }
 
-BOOL bLineEnd = FALSE;
 void GetRowAndColumn(int idx, int& row, int& column) {
     WCHAR* ptr = buf;
     row = 0;
@@ -719,14 +670,11 @@ void GetRowAndColumn(int idx, int& row, int& column) {
         int start = lineInfo[row].start;
         int end = lineInfo[row].end;
 
-        if (start < idx && end > idx) { break; }
-        if (idx == start) {
-            if (bLineEnd == TRUE && row != 0) { row--; }
-            break;
-        }
+        if (start < idx && idx < end) { break; }
+        if (idx == start) { break; }
 
         if (idx == end) {
-            if (buf[end] == 0 || buf[end] == '\r' || bLineEnd == TRUE) { break; }
+            if (buf[end] == 0 || buf[end] == '\r') { break; }
         }
 
         if (start > idx) {
@@ -736,20 +684,7 @@ void GetRowAndColumn(int idx, int& row, int& column) {
             left = row + 1;
         }
     }
-
-    /*
-    while (1) {
-        start = lineInfo[row].start;
-        end = lineInfo[row].end;
-
-        if (start <= idx && end < idx) { break; }
-
-        if (idx == end) {
-            if (buf[end] == 0 || buf[end] == '\r' || bLineEnd == TRUE) { break; }
-        }
-        row++;
-    }
-    */
+    
     column = idx - lineInfo[row].start;
 }
 
@@ -780,18 +715,6 @@ void GetCoordinate(int idx, int& x, int& y) {
             ptr += 1;
         }
     }
-}
-
-int GetLineCount() {
-    int line = 0, start = 0, end = 0;
-
-    while (1) {
-        GetLine(line, start, end);
-        if (start == -1) { break; }
-        line++;
-    }
-
-    return line;
 }
 
 BOOL IsWhiteChar(WCHAR ch) {
@@ -909,6 +832,7 @@ int WordBreakProc(int pos, int start, WBPType type) {
 void RebuildLineInfo() {
     int curLine = 0, pos = 0, wrapEnd = 0;
     int start = 0, end = 0;
+    WCHAR* ptr = buf;
 
     while (1) {
         GetLine(curLine, start, end);
@@ -921,42 +845,21 @@ void RebuildLineInfo() {
     }
 }
 
-/*
-void RebuildLineInfo() {
-    int pos = 0;
-    lineCount = 0;
+// TODO: 상하 이동시 수평 좌표값 유지
+// 방향키 상하이동(VK_UP, VK_DOWN)에서 사용할 함수
+int GetDocsXPosOnLine(int row, int dest) {
+    int start = lineInfo[row].start;
+    int end = lineInfo[row].end;
 
-    while (pos < docLength) {
-        // CRLF 탐색
-        int crlf = pos;
-        while (crlf < docLength) {
-            if (buf[crlf] == L'\r') { break; }
-            crlf++;
-        }
-
-        // 자동 개행 위치 계산 (CRLF 이전까지만)
-        int wrapEnd = FindWrapPoint(pos, crlf);
-
-        if (wrapEnd <= pos) {
-            wrapEnd = pos + 1;
-        }
-
-        // 줄 정보 저장
-        if (lineCount < MAX_LINE_COUNT) {
-            if (wrapEnd > pos) {
-                lineInfo[lineCount].start = pos;
-                lineInfo[lineCount].end = wrapEnd;
-                lineCount++;
-            }
-        }
-
-        // 다음 줄로 이동
-        if (wrapEnd == crlf) {
-            pos = crlf + 2; // CRLF 건너뛰기
-        }
-        else {
-            pos = wrapEnd;
-        }
-    }
+    return 0;
 }
-*/
+
+void TraceFormat(LPCWSTR format, ...)
+{
+    WCHAR buffer[512];
+    va_list args;
+    va_start(args, format);
+    vswprintf(buffer, 512, format, args);
+    va_end(args);
+    OutputDebugString(buffer);
+}
