@@ -20,8 +20,8 @@ BYTE AsciiCharWidth[128];
 BYTE HangulCharWidth;
 
 // 캐럿 생성
-int PrevX = 0;
-void SetCaret(BOOL bUpdatePrevX = FALSE);
+int PrevX;
+void SetCaret(BOOL bUpdatePrevX = TRUE);
 void PrecomputeCharWidths();
 int GetCharWidth(WCHAR* src, int length);
 
@@ -193,14 +193,14 @@ enum CustomCharset GetCustomCharset(WCHAR ch);
 
 struct WrapOptions {
     BOOL wordWrap;
-    BOOL trimFirstSpace;
+    BOOL trimStartSpace;
     BOOL KeepPunctWithWord;
     BOOL kjcCharWrap;
 } g_Option = {
   TRUE,
   FALSE,
   TRUE,
-  TRUE
+  TRUE,
 };
 
 enum WBPType { WBP_WORD, WBP_PUNCT };
@@ -492,6 +492,7 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     bufLength = 0x1000;
     docLength = 0;
     bComp = FALSE;
+    PrevX = 0;
 
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     memset(buf, 0, sizeof(WCHAR) * bufLength);
@@ -541,7 +542,9 @@ void SetCaret(BOOL bUpdatePrevX /*= TRUE*/){
     SetCaretPos(x, y);
     ReleaseDC(hWndMain, hdc);
 
-    if (bUpdatePrevX) { PrevX = x; }
+    if (bUpdatePrevX != FALSE) { 
+        PrevX = x;
+    }
 }
 
 void PrecomputeCharWidths() {
@@ -657,6 +660,12 @@ void GetLine(int line, int& start, int& end) {
     end = FindWrapPoint(lineStart, lineEnd);
 }
 
+// "아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다." 이 문장에서 캐럿 움직임이 이상하다
+// 화면폭에 딱맞게 "문제는"이 작성되고 이후 스페이스를 이용해 공백을 추가하면 다음 줄로 넘어가는데
+// 작성할 때는 문제가 없으나 작성이 끝난 후 캐럿을 이동할 때 문제가 발생한다.
+// "문제는"에서 "는" 앞에 캐럿이 위치해 있다가 오른쪽으로 캐럿을 옮기면
+// 줄 끝으로 이동하지 못하고 다음 줄로 넘어가 버린다.
+// 새로운 규칙을 추가하거나 방향키에서 후처리를 해야 한다.
 void GetRowAndColumn(int idx, int& row, int& column) {
     WCHAR* ptr = buf;
     row = 0;
@@ -670,8 +679,13 @@ void GetRowAndColumn(int idx, int& row, int& column) {
         int start = lineInfo[row].start;
         int end = lineInfo[row].end;
 
-        if (start < idx && idx < end) { break; }
-        if (idx == start) { break; }
+        if (start < idx && idx < end) {
+            break;
+        }
+
+        if (idx == start) { 
+            break;
+        }
 
         if (idx == end) {
             if (buf[end] == 0 || buf[end] == '\r') { break; }
@@ -791,14 +805,14 @@ int FindWrapPoint(int start, int end) {
     }
     // 문자 단위 정렬
     else { 
-
+        
     }
 
     if (pos > end) { pos = end; }
 
     // 줄 앞쪽 공백 제거
-    if (g_Option.trimFirstSpace) {
-        
+    if (g_Option.trimStartSpace) {
+       
     }
 
     return pos;
@@ -845,13 +859,25 @@ void RebuildLineInfo() {
     }
 }
 
-// TODO: 상하 이동시 수평 좌표값 유지
-// 방향키 상하이동(VK_UP, VK_DOWN)에서 사용할 함수
 int GetDocsXPosOnLine(int row, int dest) {
     int start = lineInfo[row].start;
     int end = lineInfo[row].end;
+    
+    int len = end - start;
+    WCHAR* ptr = buf + start;
 
-    return 0;
+    int Width = 0;
+    if (dest == 0) { 
+        return start;
+    }
+    else {
+        while (ptr - buf != end) {
+            Width += GetCharWidth(ptr, 1);
+            ptr += 1;
+            if (Width >= dest) { break; }
+        }
+    }
+    return ptr - buf;
 }
 
 void TraceFormat(LPCWSTR format, ...)
