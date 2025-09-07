@@ -193,14 +193,14 @@ enum CustomCharset GetCustomCharset(WCHAR ch);
 
 struct WrapOptions {
     BOOL wordWrap;
-    BOOL trimStartSpace;
+    BOOL trimEndSpaces;
     BOOL KeepPunctWithWord;
     BOOL kjcCharWrap;
 } g_Option = {
   TRUE,
   FALSE,
   TRUE,
-  TRUE,
+  FALSE,
 };
 
 enum WBPType { WBP_WORD, WBP_PUNCT };
@@ -315,8 +315,9 @@ LRESULT OnSize(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 }
 LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int row = 0, column = 0;
-    int start = 0, end = 0;
-
+    int start = 0, end = 0, toff = 0;
+    
+    
     switch (wParam) {
     case VK_UP:
         GetRowAndColumn(off, row, column);
@@ -336,17 +337,115 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         }
         break;
 
+
+    // VK_LEFT와 VK_RIGHT 코드를 수정했다. 코드가 구조적으로 작성되어 자세히 살펴보지 않으면 흐름을 파악하기 어렵다.
+    // 기존 코드는 GetNextOffset이나 GetPrevOffset으로 오프셋 값을 조정한 후 SetCaret을 호출하여 캐럿의 위치를 이동시키는 단순한 구조였다.
+    // SetCaret은 내부적으로 GetCoordinate를 호출하는데 이 함수가 화면상의 좌표를 계산해서 반환하면 SetCaret은 캐럿을 옮기는 동작만 한다.
+    // 여기서 중요한건 SetCaret 함수가 언제나 현재 위치, 즉 전역 변수 off를 참조한다는 것인데
+    // 오프셋 값을 계산하고 캐럿의 위치를 옮기는 이러한 구조에선 반드시 현재 오프셋 값을 기준으로 분기문을 만들어야 한다.
+    
+    // 이게 무슨말인가 하면, 다음과 같은 구조로는 코드를 작성할 수 없다는 것이다.
+    // toff = GetNextOffset(off);
+    // GetRowAndColumn(toff, row, column);
+    // GetLine(row, start, end);
+    // if(toff == end && buf[end] != '\r'){
+    //      ...
+    // }
+    // else{ 
+    //      ...
+    //      off = toff;
+    // }
+    // SetCaret();
+    // 대뜸 결론부터 말하니 왜 위와 같은 구조로는 코드를 작성할 수 없다는 것인지 이해하기 어려울텐데 함께 정리해보자.
+    
+    // GetRowAndColumn 함수는 이분 탐색 알고리즘을 사용한다.
+    // 이분 탐색은 그 특성상 중간값(row)을 가지는데 이 값이 항상 큰 것에서 작은 것으로, 작은 것에서 큰 것으로 순차적으로 변한다.
+    // 예를 들어, 문제가 생기는 idx가 첫 번째 줄에 있고 그 값이 20이라고 해보자.
+    // 즉, 자동 개행된 지점이 lineInfo[0].end = 20인 것이다.
+    
+    // 앞서 말했듯, 자동 개행된 경우 start와 end는 서로 동일한 값을 가진다.
+    // lineInfo[0].end와 lineInfo[1].start가 같다는 말이다.
+    
+    // 여기서 행의 값, 즉 row는 (left + right) / 2 연산식에 의해 결정된다.
+    // (left + right)의 값이 짝수건 홀수건 항상 1 다음에 0의 순서가 온다.
+    // 즉, if(start == idx)의 분기가 항상 먼저 실행된다.
+    // 다른 경우도 마찬가지로 이런 순서를 따른다.
+    
+    // 이는 VK_LEFT나 VK_RIGHT를 어떤 식으로 작성하건 바꿀 수 없다.
+    // 이 구조가 싫으면 GetRowAndColumn의 로직을 바꿔야 하는데 다른 방법도 마땅치가 않다.
+    
+    // GetRowAndColumn 함수의 로직을 유지하고 캐럿을 줄 끝에 위치시키려면 if(start == idx) 분기에서 처리해야 한다.
+    // 어떤 분기에서 어떤 처리를 하느냐는 프로그램마다 다르겠지만,
+    // 자동 개행 기능을 지원하는 에디터는 모두 GetRowAndColumn에 있는 세 가지 분기문을 필요로 할 것이다.
+    
+    // 자동 개행 기능은 훌륭한 서비스이지만, 메모리상의 오프셋과 화면상의 오프셋을 절대 1:1 매칭시킬 수 없다는 단점이 있다.
+    // 이를 매핑할 로직을 추가하여야 하는데 이때 반드시 줄의 끝과 처음에 대한 분기가 필요하다.
+    
+    // GetRowAndColumn도 이러한 이유로 위와 같은 로직을 갖게 되었다.
+    // 현재 위 함수에서 줄 끝의 열 번호를 가져오는 분기문은 다음과 같다.
+    // if(start == idx){
+    //      if(row > 0 && bLineEnd) { row--; }
+    // }
+    // ...
+    // column = idx - lineInfo[row].start;
+    // 처음 목표로 했던 줄 끝에 캐럿이 위치하도록 만들기 위해 row를 감소시켰다.
+    // 이후 SetCaret을 호출하여 캐럿을 이동시키고 화면에 출력한다.
+    // 
     case VK_LEFT:
         if (off > 0) {
-            off = GetPrevOffset(off);
+            GetRowAndColumn(off, row, column);
+            GetLine(row, start, end);
+
+            if (off == start) {
+                if (buf[GetPrevOffset(off)] == '\r') {
+                    off = GetPrevOffset(off);
+                    bLineEnd = FALSE;
+                }else{
+                    bLineEnd = TRUE;
+                }
+            }
+            else {
+                off = GetPrevOffset(off);
+                bLineEnd = FALSE;
+            }
             SetCaret();
         }
         break;
 
     case VK_RIGHT:
         if (off < wcslen(buf)) {
-            off = GetNextOffset(off);
+            toff = GetNextOffset(off);
+            GetRowAndColumn(toff, row, column);
+            GetLine(row, start, end);
+            if(toff == start && buf[start] != '\r'){
+                bLineEnd = TRUE;
+            }
+            else{ 
+                bLineEnd = FALSE;
+                off = toff;
+            }
             SetCaret();
+            /*
+            GetRowAndColumn(off, row, column);
+            GetLine(row, start, end);
+
+            if (off == end) {
+                if (buf[end] == '\r') {
+                    off = GetNextOffset(off);
+                }
+                bLineEnd = FALSE;
+            }
+            else {
+                off = GetNextOffset(off);
+                if (off == end && buf[off] != '\r') {
+                    bLineEnd = TRUE;
+                }
+                else {
+                    bLineEnd = FALSE;
+                }
+            }
+            SetCaret();
+            */
         }
         break;
 
@@ -385,6 +484,10 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         SetCaret();
         break;
     }
+
+    WCHAR title[512];
+    wsprintf(title, L"off = %d", off);
+    SetWindowText(hWnd, title);
 
     return 0;
 }
@@ -496,6 +599,9 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     memset(buf, 0, sizeof(WCHAR) * bufLength);
+    wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n이돼지새끼야 그만처먹고 자라.");
+    // wcscpy_s(buf, bufLength, L"동해물과 백두산이 마르고 닳도록 하느님이 보우하사\r\nabcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz\r\n우리나라 만세 무궁화 삼천리 화려 강산 대한 사람 대한으로 길이 보전하세");
+    docLength = wcslen(buf);
     off = 0;
 
     {
@@ -593,6 +699,7 @@ BOOL Insert(int idx, WCHAR* str) {
     memmove(buf + idx + length, buf + idx, move * sizeof(WCHAR));
     memcpy(buf + idx, str, length * sizeof(WCHAR));
     docLength += length;
+    bLineEnd = FALSE;
 
     RebuildLineInfo();
     return TRUE;
@@ -660,18 +767,21 @@ void GetLine(int line, int& start, int& end) {
     end = FindWrapPoint(lineStart, lineEnd);
 }
 
-// "아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다." 이 문장에서 캐럿 움직임이 이상하다
-// 화면폭에 딱맞게 "문제는"이 작성되고 이후 스페이스를 이용해 공백을 추가하면 다음 줄로 넘어가는데
-// 작성할 때는 문제가 없으나 작성이 끝난 후 캐럿을 이동할 때 문제가 발생한다.
-// "문제는"에서 "는" 앞에 캐럿이 위치해 있다가 오른쪽으로 캐럿을 옮기면
-// 줄 끝으로 이동하지 못하고 다음 줄로 넘어가 버린다.
-// 새로운 규칙을 추가하거나 방향키에서 후처리를 해야 한다.
+// 자동 개행된 경우 줄의 끝과 다음 줄의 처음이 같은 오프셋을 가진다는게 핵심 문제이다.
+// VK_RIGHT, VK_LEFT의 코드를 텍스트로 도식화 해보면 다음과 같다.
+// GetNext(Prev)Offset() -> SetCaret() -> GetCoordinate() -> GetRowAndColumn() -> GetCoordinate() -> SetCaret()
+// GetRowAndColumn에 의해 메모리상의 오프셋이 정해지는데 이때 문제가 발생한다.
+// 화면과 메모리상의 좌표가 1:1로 대응되지 않는 것인데, 이유는 자동 개행으로 인해 첫 번째 줄을 제외한 start와 end의 값이 서로 같다는 것이다.
+// 즉, 오프셋 값이 동일하다.
+
+// 현재 구조를 보면, SetCaret 함수는 여러 메세지에서 호출된다.
+// 즉, 호출원이 여러 곳이며 이러한 공통 함수를 수정할 때는 해당 함수를 호출하는 모든 호출원의 흐름을 고려해야 한다.
+// 지금 문제는 VK_LEFT와 VK_RIGHT로 캐럿을 이동할 때 발생하므로 이 메세지의 코드를 수정하여 캐럿의 이동을 조정해보자.
 void GetRowAndColumn(int idx, int& row, int& column) {
     WCHAR* ptr = buf;
     row = 0;
 
-    int left = 0;
-    int right = lineCount - 1;
+    int left = 0, right = lineCount - 1;
 
     while (left <= right) {
         row = (left + right) / 2;
@@ -683,12 +793,15 @@ void GetRowAndColumn(int idx, int& row, int& column) {
             break;
         }
 
-        if (idx == start) { 
+        if (idx == start) {
+            if (row > 0 && bLineEnd) { row--; }
             break;
         }
 
         if (idx == end) {
-            if (buf[end] == 0 || buf[end] == '\r') { break; }
+            if (ptr[end] == 0 || ptr[end] == '\r') {
+                break;
+            }
         }
 
         if (start > idx) {
@@ -698,7 +811,7 @@ void GetRowAndColumn(int idx, int& row, int& column) {
             left = row + 1;
         }
     }
-    
+
     column = idx - lineInfo[row].start;
 }
 
@@ -805,14 +918,29 @@ int FindWrapPoint(int start, int end) {
     }
     // 문자 단위 정렬
     else { 
-        
+        if (!g_Option.kjcCharWrap) {
+            // 하이픈 뒤에서 끊기 허용
+            if (pos > start && ptr[pos - 1] == L'-') {
+                // ok
+            }
+            else if (pos < end && !IsWhiteChar(ptr[pos])) {
+                if (pos > start) {
+                    CustomCharset Prev = GetCustomCharset(pos - 1);
+                    int prevPos = pos - 1;
+                    while (prevPos > start && GetCustomCharset(prevPos - 1) == Prev) { prevPos--; }
+                    pos = prevPos;
+                }
+            }
+        }
     }
 
     if (pos > end) { pos = end; }
 
-    // 줄 앞쪽 공백 제거
-    if (g_Option.trimStartSpace) {
-       
+    // 줄 뒤쪽 공백 제거
+    if (g_Option.trimEndSpaces) {
+        int t = pos;
+        while (t > start && IsWhiteChar(ptr[t - 1])) t--;
+        pos = (t > start) ? t : pos;
     }
 
     return pos;
@@ -877,7 +1005,16 @@ int GetDocsXPosOnLine(int row, int dest) {
             if (Width >= dest) { break; }
         }
     }
-    return ptr - buf;
+
+    int ret = ptr - buf;
+    if (ret == end && buf[ret] != '\r' && buf[ret] != 0) {
+        bLineEnd = TRUE;
+    }
+    else {
+        bLineEnd = FALSE;
+    }
+
+    return ret;
 }
 
 void TraceFormat(LPCWSTR format, ...)
