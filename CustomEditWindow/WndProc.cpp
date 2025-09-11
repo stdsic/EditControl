@@ -21,7 +21,7 @@ BYTE HangulCharWidth;
 
 // 캐럿 생성
 int PrevX;
-void SetCaret(BOOL bUpdatePrevX = TRUE);
+void SetCaret(BOOL bUpdatePrevX = TRUE, BOOL bScrollToCaret = TRUE);
 void PrecomputeCharWidths();
 int GetCharWidth(WCHAR* src, int length);
 
@@ -250,6 +250,11 @@ void RebuildLineInfo();
 // 캐럿 이동에 활용해보자.
 int GetDocsXPosOnLine(int row, int dest);
 
+// 자동 개행을 완성했다.
+// 이제 스크롤 바를 추가하여 화면에 보이지 않는 글자를 보이도록 만들어보자.
+int xPos, yPos, xMax, yMax, FontWidth;
+void UpdateScrollInfo();
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     return 0;
@@ -266,7 +271,7 @@ LRESULT OnLButtonUp(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT OnSetFocus(HWND hWnd, WPARAM wParam, LPARAM lParam) {
-    SetCaret(FALSE);
+    SetCaret(FALSE, FALSE);
     return 0;
 }
 
@@ -287,10 +292,87 @@ LRESULT OnContextMenu(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 LRESULT OnHScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    SCROLLINFO si;
+    int increase = 0;
 
+    switch (wParam) {
+    case SB_LINELEFT:
+        increase = -FontHeight;
+        break;
+
+    case SB_LINERIGHT:
+        increase = FontHeight;
+        break;
+
+    case SB_PAGELEFT:
+        increase = -(g_crt.right - g_crt.left);
+        break;
+
+    case SB_PAGERIGHT:
+        increase = g_crt.right - g_crt.left;
+        break;
+
+    case SB_THUMBTRACK:
+        si.cbSize = sizeof(SCROLLINFO);
+        si.fMask = SIF_TRACKPOS;
+        GetScrollInfo(hWnd, SB_HORZ, &si);
+        increase = si.nTrackPos - xPos;
+        break;
+
+    default:
+        break;
+    }
+
+    increase = max(-xPos, min(increase, xMax - xPos));
+    xPos += increase;
+    ScrollWindow(hWnd, -increase, 0, NULL, NULL);
+    SetScrollPos(hWnd, SB_HORZ, xPos, TRUE);
     return 0;
 }
 LRESULT OnVScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    SCROLLINFO si;
+    int increase;
+    int per;
+
+    per = (g_crt.bottom / LineHeight) * LineHeight;
+    increase = 0;
+
+    switch (wParam) {
+    case SB_LINEUP:
+        increase = -LineHeight;
+        break;
+
+    case SB_LINEDOWN:
+        increase = LineHeight;
+        break;
+
+    case SB_PAGEUP:
+        increase = -per;
+        break;
+
+    case SB_PAGEDOWN:
+        increase = per;
+        break;
+
+        // SB_THUMBTRACK 메세지는 현재 위치를 임의의 위치로 옮겼을 때 발생하며 따라서 줄의 경계 따위는 완전히 무시한다.
+    case SB_THUMBTRACK:
+        si.cbSize = sizeof(SCROLLINFO);
+        si.fMask = SIF_TRACKPOS;
+        GetScrollInfo(hWnd, SB_VERT, &si);
+        increase = si.nTrackPos - yPos;
+        break;
+
+    default:
+        break;
+    }
+
+    // 0보다 작지 않게 고정
+    increase = max(-yPos, min(increase, yMax - yPos - per));
+    // 스크롤바 이동시 줄의 중간까지만 걸쳐 보이는 현상이 없도록 줄간의 배수로 강제 내림 연산
+    increase = (increase / LineHeight) * LineHeight;
+    yPos += increase;
+    ScrollWindow(hWnd, 0, -increase, NULL, NULL);
+    SetScrollPos(hWnd, SB_VERT, yPos, TRUE);
 
     return 0;
 }
@@ -308,6 +390,7 @@ LRESULT OnSize(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             SetCaret();
         }
         GetClientRect(hWnd, &g_crt);
+        UpdateScrollInfo();
         RebuildLineInfo();
     }
     return 0;
@@ -316,6 +399,7 @@ LRESULT OnSize(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int row = 0, column = 0;
     int start = 0, end = 0, toff = 0;
+    int oldRow = 0;
     
     
     switch (wParam) {
@@ -342,55 +426,9 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     // 기존 코드는 GetNextOffset이나 GetPrevOffset으로 오프셋 값을 조정한 후 SetCaret을 호출하여 캐럿의 위치를 이동시키는 단순한 구조였다.
     // SetCaret은 내부적으로 GetCoordinate를 호출하는데 이 함수가 화면상의 좌표를 계산해서 반환하면 SetCaret은 캐럿을 옮기는 동작만 한다.
     // 여기서 중요한건 SetCaret 함수가 언제나 현재 위치, 즉 전역 변수 off를 참조한다는 것인데
-    // 오프셋 값을 계산하고 캐럿의 위치를 옮기는 이러한 구조에선 반드시 현재 오프셋 값을 기준으로 분기문을 만들어야 한다.
-    
-    // 이게 무슨말인가 하면, 다음과 같은 구조로는 코드를 작성할 수 없다는 것이다.
-    // toff = GetNextOffset(off);
-    // GetRowAndColumn(toff, row, column);
-    // GetLine(row, start, end);
-    // if(toff == end && buf[end] != '\r'){
-    //      ...
-    // }
-    // else{ 
-    //      ...
-    //      off = toff;
-    // }
-    // SetCaret();
-    // 대뜸 결론부터 말하니 왜 위와 같은 구조로는 코드를 작성할 수 없다는 것인지 이해하기 어려울텐데 함께 정리해보자.
-    
-    // GetRowAndColumn 함수는 이분 탐색 알고리즘을 사용한다.
-    // 이분 탐색은 그 특성상 중간값(row)을 가지는데 이 값이 항상 큰 것에서 작은 것으로, 작은 것에서 큰 것으로 순차적으로 변한다.
-    // 예를 들어, 문제가 생기는 idx가 첫 번째 줄에 있고 그 값이 20이라고 해보자.
-    // 즉, 자동 개행된 지점이 lineInfo[0].end = 20인 것이다.
-    
-    // 앞서 말했듯, 자동 개행된 경우 start와 end는 서로 동일한 값을 가진다.
-    // lineInfo[0].end와 lineInfo[1].start가 같다는 말이다.
-    
-    // 여기서 행의 값, 즉 row는 (left + right) / 2 연산식에 의해 결정된다.
-    // (left + right)의 값이 짝수건 홀수건 항상 1 다음에 0의 순서가 온다.
-    // 즉, if(start == idx)의 분기가 항상 먼저 실행된다.
-    // 다른 경우도 마찬가지로 이런 순서를 따른다.
-    
-    // 이는 VK_LEFT나 VK_RIGHT를 어떤 식으로 작성하건 바꿀 수 없다.
-    // 이 구조가 싫으면 GetRowAndColumn의 로직을 바꿔야 하는데 다른 방법도 마땅치가 않다.
-    
-    // GetRowAndColumn 함수의 로직을 유지하고 캐럿을 줄 끝에 위치시키려면 if(start == idx) 분기에서 처리해야 한다.
-    // 어떤 분기에서 어떤 처리를 하느냐는 프로그램마다 다르겠지만,
-    // 자동 개행 기능을 지원하는 에디터는 모두 GetRowAndColumn에 있는 세 가지 분기문을 필요로 할 것이다.
-    
-    // 자동 개행 기능은 훌륭한 서비스이지만, 메모리상의 오프셋과 화면상의 오프셋을 절대 1:1 매칭시킬 수 없다는 단점이 있다.
-    // 이를 매핑할 로직을 추가하여야 하는데 이때 반드시 줄의 끝과 처음에 대한 분기가 필요하다.
-    
-    // GetRowAndColumn도 이러한 이유로 위와 같은 로직을 갖게 되었다.
-    // 현재 위 함수에서 줄 끝의 열 번호를 가져오는 분기문은 다음과 같다.
-    // if(start == idx){
-    //      if(row > 0 && bLineEnd) { row--; }
-    // }
-    // ...
-    // column = idx - lineInfo[row].start;
-    // 처음 목표로 했던 줄 끝에 캐럿이 위치하도록 만들기 위해 row를 감소시켰다.
-    // 이후 SetCaret을 호출하여 캐럿을 이동시키고 화면에 출력한다.
-    // 
+    // 오프셋 값을 계산하고 캐럿의 위치를 옮기는 이러한 구조에선 현재 오프셋 값을 기준으로 분기문을 만드는 것이 좋다.
+    // SetCaret은 항상 마지막에 호출되어야 하므로 순서가 정해져 있다.
+    // 실행 흐름을 잘 따라가다 보면 왜 이런 구조로 코드를 작성했는지 파악할 수 있을 것이다.
     case VK_LEFT:
         if (off > 0) {
             GetRowAndColumn(off, row, column);
@@ -414,18 +452,6 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     case VK_RIGHT:
         if (off < wcslen(buf)) {
-            toff = GetNextOffset(off);
-            GetRowAndColumn(toff, row, column);
-            GetLine(row, start, end);
-            if(toff == start && buf[start] != '\r'){
-                bLineEnd = TRUE;
-            }
-            else{ 
-                bLineEnd = FALSE;
-                off = toff;
-            }
-            SetCaret();
-            /*
             GetRowAndColumn(off, row, column);
             GetLine(row, start, end);
 
@@ -445,7 +471,6 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
                 }
             }
             SetCaret();
-            */
         }
         break;
 
@@ -475,13 +500,46 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     case VK_HOME:
         GetRowAndColumn(off, row, column);
         off = GetOffset(row, 0);
+        bLineEnd = FALSE;
         SetCaret();
         break;
 
     case VK_END:
         GetRowAndColumn(off, row, column);
         off = GetOffset(row, 2147483647);
+        if (buf[off] != '\r' && buf[off] != 0) {
+            bLineEnd = TRUE;
+        }
         SetCaret();
+        break;
+
+    case VK_PRIOR:
+        GetRowAndColumn(off, row, column);
+        oldRow = row;
+        row -= g_crt.bottom / LineHeight;
+        row = max(row, 0);
+        yPos = yPos - (oldRow - row) * LineHeight;
+        yPos = max(yPos, 0);
+        InvalidateRect(hWnd, NULL, TRUE);
+        SetScrollPos(hWnd, SB_VERT, yPos, TRUE);
+
+        off = GetDocsXPosOnLine(row, PrevX);
+        SetCaret(FALSE);
+        break;
+
+    case VK_NEXT:
+        GetRowAndColumn(off, row, column);
+        oldRow = row;
+        row += g_crt.bottom / LineHeight;
+        row = min(row, lineCount - 1);
+        yPos = yPos + (row - oldRow) * LineHeight;
+        yPos = max(0, min(yPos, yMax - (g_crt.bottom / LineHeight) * LineHeight));
+        // row = max(0, min(yPos, yMax - (g_crt.bottom / LineHeight) * LineHeight));
+        InvalidateRect(hWnd, NULL, TRUE);
+        SetScrollPos(hWnd, SB_VERT, yPos, TRUE);
+        
+        off = GetDocsXPosOnLine(row, PrevX);
+        SetCaret(FALSE);
         break;
     }
 
@@ -503,7 +561,7 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     for (int i = 0; i < lineCount; i++) {
         start = lineInfo[i].start;
         end = lineInfo[i].end;
-        TextOut(hdc, 0, i * LineHeight, buf + start, end - start);
+        TextOut(hdc, 0 - xPos, i * LineHeight - yPos, buf + start, end - start);
     }
     EndPaint(hWnd, &ps);
     return 0;
@@ -596,6 +654,8 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     docLength = 0;
     bComp = FALSE;
     PrevX = 0;
+    xMax = 1024;
+    xPos = yPos = 0;
 
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     memset(buf, 0, sizeof(WCHAR) * bufLength);
@@ -609,6 +669,7 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         HDC hdc = GetDC(hWnd);
         GetTextMetrics(hdc, &tm);
         FontHeight = tm.tmHeight;
+        FontWidth = tm.tmAveCharWidth;
         ReleaseDC(hWnd, hdc);
     }
 
@@ -621,6 +682,7 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     lineInfo = (LineInfo*)malloc(sizeof(LineInfo) * lineInfoSize);
     memset(lineInfo, 0, sizeof(lineInfo) * lineInfoSize);
     
+    UpdateScrollInfo();
     return 0;
 }
 
@@ -631,13 +693,11 @@ LRESULT OnDestroy(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 
-void SetCaret(BOOL bUpdatePrevX /*= TRUE*/){
+void SetCaret(BOOL bUpdatePrevX /*= TRUE*/, BOOL bScrollToCaret /* = TRUE*/) {
     SIZE sz;
-    HDC hdc;
     int toff, x, y;
     int caretWidth;
 
-    hdc = GetDC(hWndMain);
     toff = bComp ? off - 2 : off;
     caretWidth = bComp ? GetCharWidth(buf + toff, 1) : CARET_WIDTH;
 
@@ -645,9 +705,37 @@ void SetCaret(BOOL bUpdatePrevX /*= TRUE*/){
     ShowCaret(hWndMain);
 
     GetCoordinate(toff, x, y);
-    SetCaretPos(x, y);
-    ReleaseDC(hWndMain, hdc);
+    
+    // 스크롤바를 지원하면서부터 캐럿이 화면을 벗어났을 때 스크롤 되게끔 만들어야 한다.
+    BOOL bScroll = FALSE;
+    if (bScrollToCaret) {
+        if (!g_Option.wordWrap && !g_Option.kjcCharWrap) {
+            if ((x + CARET_WIDTH > xPos + g_crt.right) || (x < xPos)) {
+                xPos = max(0, x - g_crt.right / 2);
+                bScroll = TRUE;
+            }
+        }
 
+        if (y < yPos) {
+            yPos = y;
+            bScroll = TRUE;
+        }
+
+        if (y + FontHeight > yPos + g_crt.bottom) {
+            int ty = (g_crt.bottom - FontHeight) / LineHeight * LineHeight;
+            yPos = y - ty;
+            bScroll = TRUE;
+        }
+
+        if (bScroll) {
+            SetScrollPos(hWndMain, SB_HORZ, xPos, TRUE);
+            SetScrollPos(hWndMain, SB_VERT, yPos, TRUE);
+            InvalidateRect(hWndMain, NULL, TRUE);
+        }
+    }
+
+    SetCaretPos(x - xPos, y - yPos);
+    
     if (bUpdatePrevX != FALSE) { 
         PrevX = x;
     }
@@ -701,6 +789,7 @@ BOOL Insert(int idx, WCHAR* str) {
     docLength += length;
     bLineEnd = FALSE;
 
+    UpdateScrollInfo();
     RebuildLineInfo();
     return TRUE;
 }
@@ -712,6 +801,7 @@ BOOL Delete(int idx, int cnt) {
     memmove(buf + idx, buf + idx + cnt, move * sizeof(WCHAR));
     docLength -= cnt;
 
+    UpdateScrollInfo();
     RebuildLineInfo();
     return TRUE;
 }
@@ -1025,4 +1115,43 @@ void TraceFormat(LPCWSTR format, ...)
     vswprintf(buffer, 512, format, args);
     va_end(args);
     OutputDebugString(buffer);
+}
+
+void UpdateScrollInfo() {
+    SCROLLINFO si;
+
+    int line = g_crt.bottom / LineHeight;
+    int needed = line / 2 + lineCount;
+
+    yMax = needed * LineHeight;
+
+    si.cbSize = sizeof(SCROLLINFO);
+    si.fMask = SIF_ALL | SIF_DISABLENOSCROLL;
+    si.nMin = 0;
+    si.nMax = yMax;
+    si.nPage = line * LineHeight;
+
+    if (si.nMax < si.nPage) {
+        // 스크롤 범위가 페이지 높이보다 작으면(DISABLE 조건) 0으로 맞춤
+        yPos = 0;
+    }
+    si.nPos = yPos;
+    SetScrollInfo(hWndMain, SB_VERT, &si, TRUE);
+
+    if (!g_Option.wordWrap && !g_Option.kjcCharWrap) {
+        int i, MaxLength, start, end;
+        i = MaxLength = start = end = 0;
+        for (i; i < lineCount; i++) {
+            start = lineInfo[i].start;
+            end = lineInfo[i].end;
+
+            MaxLength = max(MaxLength, end - start);
+        }
+
+        xMax = (int)(MaxLength * FontWidth * 1.5);
+        si.nMax = xMax;
+        si.nPage = g_crt.right;
+        si.nPos = xPos;
+        SetScrollInfo(hWndMain, SB_HORZ, &si, TRUE);
+    }
 }
