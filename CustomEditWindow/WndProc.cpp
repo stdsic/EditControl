@@ -255,6 +255,23 @@ int GetDocsXPosOnLine(int row, int dest);
 int xPos, yPos, xMax, yMax, FontWidth;
 void UpdateScrollInfo();
 
+// 탭 문자 지원
+// 탭은 텍스트 편집기에서 필수적이며 문자 코드를 갖고 있다.
+// 이 문자 코드는 알다시피 \t인데 일반적으로 스페이스바 4개의 폭을 가지는 빈 공간으로 표현한다.
+// 탭은 서식이 없는 문서에서 어질러진 자료를 정리할 때 유용하다.
+// 예로, 자료를 도표 형태로 정리하거나 단어 또는 문장을 구분할 때를 들 수 있다.
+// 탭은 일정한 크기뿐만 아니라 일정한 위치를 기준으로 반복된다.
+int TabWidth, TabSize;
+
+// 탭을 화면에 그리기 위해 서브 함수를 만들어보자.
+// WM_PAINT 메세지를 복잡하게 만드는 것 보단 필요한 동작을 함수로 만들어 두는 것이 좋다.
+// 현재 코드를 보면 한 줄에 대한 정보를 가져오고 문자열을 출력하는 구조인데
+// 탭을 인식하고 그리는 동작까지 포괄하여 하나의 함수로 만들어보자.
+// 먼저, 각 줄을 그리는 함수이다.
+int DrawLine(HDC hdc, int line);
+// 각 줄의 정보를 가지고 문자열을 화면에 출력할 때 탭 문자를 인식하도록 만들어보자.
+void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL bIgnoredX);
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     return 0;
@@ -656,6 +673,8 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     PrevX = 0;
     xMax = 1024;
     xPos = yPos = 0;
+    TabWidth = 4;
+    TabSize = FontWidth * TabWidth;
 
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     memset(buf, 0, sizeof(WCHAR) * bufLength);
@@ -1154,4 +1173,15 @@ void UpdateScrollInfo() {
         si.nPos = xPos;
         SetScrollInfo(hWndMain, SB_HORZ, &si, TRUE);
     }
+}
+
+int DrawLine(int line) {
+    int start, end, x, length, idx;
+
+    start = lineInfo[line].start;
+    end = lineInfo[line].end;
+}
+
+void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL bIgnoredX) {
+
 }
