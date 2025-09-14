@@ -270,7 +270,14 @@ int TabWidth, TabSize;
 // 먼저, 각 줄을 그리는 함수이다.
 int DrawLine(HDC hdc, int line);
 // 각 줄의 정보를 가지고 문자열을 화면에 출력할 때 탭 문자를 인식하도록 만들어보자.
-void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL bIgnoredX);
+void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore);
+// 정렬에서 탭을 인식해야 하므로 우선, IsWhiteChar 함수를 수정해야 한다.
+// 이후 GetCharWidth에서 탭을 인식하도록 만들어야 하는데 FindWrapPoint에서 이분 탐색을 활용하기 때문에 이 함수에 직접 분기를 추가했다.
+// 외에 화면 좌표를 사용하는 함수에선 직접 현재 포인터가 가리키는 지점이 탭 문자('\t')인지 확인하고 좌표값을 계산하도록 만들었다.
+// 어려운 코드는 없지만 GetCharWidth에 분기를 추가한 이유는 알고있어야 한다. 다시 말하지만, 현재 이분 탐색을 활용하고 있기 때문에 이런 처리가 필요하다.
+
+// TODO: 문장 끝에 탭이 반복될 경우 다음 줄로 넘어가면서 캐럿이 함께 이동된다. 캐럿을 처리할 때 분기를 추가해야 한다.
+// TODO: 탭 문자가 반복될 때 상하이동시 캐럿의 위치가 이상하다. 즉, 수평 좌표 처리가 이상해진다. 이 역시 수정이 필요하다. 
 
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
@@ -574,11 +581,8 @@ LRESULT OnKeyUp(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
-    int start, end;
     for (int i = 0; i < lineCount; i++) {
-        start = lineInfo[i].start;
-        end = lineInfo[i].end;
-        TextOut(hdc, 0 - xPos, i * LineHeight - yPos, buf + start, end - start);
+        if (DrawLine(hdc, i) == 0) { break; }
     }
     EndPaint(hWnd, &ps);
     return 0;
@@ -673,8 +677,6 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     PrevX = 0;
     xMax = 1024;
     xPos = yPos = 0;
-    TabWidth = 4;
-    TabSize = FontWidth * TabWidth;
 
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     memset(buf, 0, sizeof(WCHAR) * bufLength);
@@ -688,11 +690,14 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         HDC hdc = GetDC(hWnd);
         GetTextMetrics(hdc, &tm);
         FontHeight = tm.tmHeight;
-        FontWidth = tm.tmAveCharWidth;
+        // FontWidth = tm.tmAveCharWidth;
         ReleaseDC(hWnd, hdc);
     }
 
     PrecomputeCharWidths();
+
+    TabWidth = 4;
+    TabSize = AsciiCharWidth[' '] * TabWidth;
 
     LineRatio = 120;
     LineHeight = (int)(FontHeight * LineRatio / 100);
@@ -780,9 +785,16 @@ void PrecomputeCharWidths() {
 
 int GetCharWidth(WCHAR* src, int length) {
     int width = 0;
+    WCHAR ch = 0;
     for (int i = 0; i < length; i++) {
-        if ((int)(*(src + i)) < 128) {
-            width += AsciiCharWidth[*(src + i)];
+      ch = (int)(*(src + i));
+        if (ch < 128) {
+            if (ch == '\t') {
+                width = (width / TabSize + 1) * TabSize;
+            }
+            else {
+                width += AsciiCharWidth[ch];
+            }
         }
         else {
             width += HangulCharWidth;
@@ -945,16 +957,19 @@ void GetCoordinate(int idx, int& x, int& y) {
     while (ptr != buf + idx) {
         if (*ptr == '\t') {
             // Tabsize;
+            x = (x / TabSize + 1) * TabSize;
         }
         else {
             x += GetCharWidth(ptr, 1);
-            ptr += 1;
         }
+
+        ptr += 1;
     }
 }
 
 BOOL IsWhiteChar(WCHAR ch) {
     return ch == L' ' ||
+        ch == '\t' ||
         ch == L'\r' ||
         ch == L'\n';
 }
@@ -996,6 +1011,7 @@ int FindWrapPoint(int start, int end) {
     while (left <= right) {
         int mid = (left + right) / 2;
         int width = GetCharWidth(ptr + start, mid - start);
+        TraceFormat(L"left = %d, right = %d, start = %d, mid = %d, width = %d\r\n", left, right, start, mid, width);
         if (width <= maxWidth) { fit = mid; left = mid + 1; }
         else { right = mid - 1; }
     }
@@ -1109,9 +1125,15 @@ int GetDocsXPosOnLine(int row, int dest) {
     }
     else {
         while (ptr - buf != end) {
-            Width += GetCharWidth(ptr, 1);
-            ptr += 1;
+            if (*ptr == '\t') {
+                Width = (Width / TabSize + 1) * TabSize;
+            }
+            else {
+                Width += GetCharWidth(ptr, 1);
+            }
+
             if (Width >= dest) { break; }
+            ptr += 1;
         }
     }
 
@@ -1175,13 +1197,56 @@ void UpdateScrollInfo() {
     }
 }
 
-int DrawLine(int line) {
+int DrawLine(HDC hdc, int line) {
     int start, end, x, length, idx;
 
     start = lineInfo[line].start;
     end = lineInfo[line].end;
+    if (start == 0 && end == 0) { return 0; }
+
+    x = 0 - xPos;
+    idx = start;
+
+    while (1) {
+        length = 0;
+        while (1) {
+            if (buf[idx + length] == '\t') { 
+                if (length == 0) { length = 1; }
+                break;
+            }
+
+            if (idx + length == end) { break; }
+            
+            length++;
+        }
+
+        DrawSegment(hdc, x, line * LineHeight - yPos, idx, length, (idx + length == end));
+        idx += length;
+        if (idx == end) { return 1; }
+    }
+
 }
 
-void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL bIgnoredX) {
+// 조각이란 한 번에 같이 출력할 수 있는 성질이 같은 문자열의 집합으로 정의된다.
+// 여기서는 탭만 구분자로 사용된다.
+void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore) {
+    int docx;
 
+    // 여기서 x는 화면상의 좌표인데
+    // 수평 스크롤로 인해 출력해야할 문자의 좌표가 음수값이 되면
+    // 탭 사이즈를 구하는 공식이 무효해진다.
+    // 따라서, x를 화면상의 좌표로 받아 간단히 출력하되
+    // 탭 문자를 만난 경우에는 공식을 적용하기 위해 문서상의 좌표로 변환하고 다시 화면 좌표로 되돌려야 한다.
+    if (buf[idx] == '\t') {
+        docx = x + xPos;
+        docx = (docx / TabSize + 1) * TabSize;
+        x = docx - xPos;
+    }
+    else {
+        // 기존과 같이 출력
+        TextOut(hdc, x, y, buf + idx, length);
+        if (ignore == FALSE) {
+            x += GetCharWidth(buf + idx, length);
+        }
+    }
 }
