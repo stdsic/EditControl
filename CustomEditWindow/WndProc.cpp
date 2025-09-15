@@ -279,6 +279,11 @@ void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore);
 // TODO: 문장 끝에 탭이 반복될 경우 다음 줄로 넘어가면서 캐럿이 함께 이동된다. 캐럿을 처리할 때 분기를 추가해야 한다.
 // TODO: 탭 문자가 반복될 때 상하이동시 캐럿의 위치가 이상하다. 즉, 수평 좌표 처리가 이상해진다. 이 역시 수정이 필요하다. 
 
+// 하나씩 해결해보자. 문제의 본질은 다음과 같다.
+// 자동 개행을 수행하여 캐럿이 다음 줄로 이동했지만, 문자는 이전 줄에 삽입된다.
+// 즉, 삽입 위치와 캐럿 위치가 일치하지 않는다는 것이다.
+// 문자 정렬의 경우 아무런 문제가 없지만 단어 단위 정렬을 지원하므로 방향키 뿐만 아니라 삽입/삭제간에도 bLineEnd를 활성화 해야한다.
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     return 0;
@@ -456,8 +461,9 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     case VK_LEFT:
         if (off > 0) {
             GetRowAndColumn(off, row, column);
-            GetLine(row, start, end);
-
+            start = lineInfo[row].start;
+            end = lineInfo[row].end;
+            
             if (off == start) {
                 if (buf[GetPrevOffset(off)] == '\r') {
                     off = GetPrevOffset(off);
@@ -477,7 +483,8 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     case VK_RIGHT:
         if (off < wcslen(buf)) {
             GetRowAndColumn(off, row, column);
-            GetLine(row, start, end);
+            start = lineInfo[row].start;
+            end = lineInfo[row].end;
 
             if (off == end) {
                 if (buf[end] == '\r') {
@@ -818,7 +825,31 @@ BOOL Insert(int idx, WCHAR* str) {
     memmove(buf + idx + length, buf + idx, move * sizeof(WCHAR));
     memcpy(buf + idx, str, length * sizeof(WCHAR));
     docLength += length;
-    bLineEnd = FALSE;
+
+    // 문제의 본질이 삽입 위치와 캐럿 위치가 일치하지 않는다는 점에 있다는 것을 파악했다.
+    // 단어 단위 정렬을 지원하므로 삽입/삭제간 bLineEnd를 켜거나 꺼야 한다.
+    // 방향키는 이미 처리를 끝냈으므로 위 함수들만 수정하면 된다.
+    if (g_Option.wordWrap) {
+        int row, column, start, end;
+        GetRowAndColumn(idx, row, column);
+        start = lineInfo[row].start;
+        end = lineInfo[row].end;
+
+        bLineEnd = FALSE;
+
+        if (end == idx && column > 0) {
+            bLineEnd = TRUE;
+        }
+        
+        /*
+        if (...) {
+            ...
+        }
+        */
+    }
+    else {
+        bLineEnd = FALSE;
+    }
 
     UpdateScrollInfo();
     RebuildLineInfo();
@@ -910,6 +941,8 @@ void GetRowAndColumn(int idx, int& row, int& column) {
         int start = lineInfo[row].start;
         int end = lineInfo[row].end;
 
+        TraceFormat(L"row = %d, start = %d, end = %d\r\n", row, start, end);
+
         if (start < idx && idx < end) {
             break;
         }
@@ -946,6 +979,7 @@ int GetOffset(int row, int column) {
 void GetCoordinate(int idx, int& x, int& y) {
     int row, column;
     GetRowAndColumn(idx, row, column);
+    TraceFormat(L"row = %d, column = %d\r\n", row, column);
 
     y = row * LineHeight;
     x = 0;
@@ -969,9 +1003,9 @@ void GetCoordinate(int idx, int& x, int& y) {
 
 BOOL IsWhiteChar(WCHAR ch) {
     return ch == L' ' ||
-        ch == '\t' ||
         ch == L'\r' ||
-        ch == L'\n';
+        ch == L'\n' || 
+        ch == L'\t';
 }
 
 BOOL IsAlnumChar(WCHAR ch) {
@@ -1011,7 +1045,6 @@ int FindWrapPoint(int start, int end) {
     while (left <= right) {
         int mid = (left + right) / 2;
         int width = GetCharWidth(ptr + start, mid - start);
-        TraceFormat(L"left = %d, right = %d, start = %d, mid = %d, width = %d\r\n", left, right, start, mid, width);
         if (width <= maxWidth) { fit = mid; left = mid + 1; }
         else { right = mid - 1; }
     }
@@ -1028,7 +1061,7 @@ int FindWrapPoint(int start, int end) {
 
     // 단어 단위 정렬
     if (g_Option.wordWrap) {
-        if (pos < end && !IsWhiteChar(ptr[pos - 1]) && !IsWhiteChar(ptr[pos])) {
+        if (pos < end && !IsWhiteChar(ptr[pos - 1])  && !IsWhiteChar(ptr[pos])) {
             pos = WordBreakProc(pos, start, WBP_WORD);
             if (pos <= start) { pos = fit; }
         }
