@@ -63,7 +63,7 @@ void GetLine(int line, int& start, int& end);
 // 또, 실제로 문자를 중간에 삽입하는 등의 동작을 하려면 오프셋 값이 필요하다.
 // off의 값이 몇 번째 행의 몇 번째 열에 위치하는지 알아야 이러한 기능을 구현할 수 있으므로 일단 이와 관련된 함수부터 작성해보자
 
-BOOL bLineEnd = FALSE;
+BOOL bLineEnd = FALSE, bLineFirst = FALSE;
 void GetRowAndColumn(int idx, int& row, int& column);
 int GetOffset(int row, int column);
 
@@ -284,6 +284,52 @@ void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore);
 // 즉, 삽입 위치와 캐럿 위치가 일치하지 않는다는 것이다.
 // 문자 정렬의 경우 아무런 문제가 없지만 단어 단위 정렬을 지원하므로 방향키 뿐만 아니라 삽입/삭제간에도 bLineEnd를 활성화 해야한다.
 
+// 우선, 삭제 코드부터 보자.
+// del키를 눌러 삭제하는 코드는 그대로 두면 되고 VK_BACK만 수정하면 된다.
+// 단어 단위 정렬이 활성화 된 상태에서는 Backspace키를 눌렀을 때에도 bLineEnd를 활성/비활성 하는 코드가 추가되어야 캐럿이 제대로 움직인다.
+// 문자 단위 정렬에서는 이럴 필요가 없으므로 wordWrap을 기준으로 분기한다.
+
+// 이번엔 삽입 코드를 보자.
+// 삭제는 별로 어려울게 없다. 진짜 문제는 문자를 삽입할 때인데, 결론만 말하면 bAlphaNum 변수를 추가하기로 했다.
+// bAlphaNum 변수는 입력하려는 문자가 알파벳인지 아닌지를 판단하는데 이 변수가 필요한 이유는 간단하다.
+// 한글과 같은 조립 문자의 경우 IME가 저수준에서 캐럿 위치를 일부 보정해주는데 이를 활용할 생각이기 때문이다.
+
+// "아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다." 문장에서 "별 "다음에 캐럿을 위치시켜보자.
+// 그리고 삽입 함수 Insert 내부에서 bLineEnd를 다음과 같은 분기로 조정한다고 가정해보자.
+
+// if(g_Option.wordWrap){
+//      int row, column, start, end;
+//      GetRowAndColumn(idx, row, column);
+//      start = lineInfo[row].start;
+//      end = lineInfo[row].end;
+// 
+//      if(column > 0 && idx == end){
+//          bLineEnd = TRUE;
+//      }else{
+//          bLineEnd = FALSE;
+//      }
+// }else{
+//      bLineEnd = FALSE;
+// }
+
+// 방향키로 "별 " 다음에 캐럿을 위치시키면 이 자리의 오프셋 값은 end와 같다.
+// 이 상태에서 bLineEnd를 TRUE로 만들고 캐럿이 다음 줄로 이동되지 않도록 만들면 논리적으로 괜찮아 보인다.
+// 그러나 실상은 그렇지 않은데, 이렇게 되면 IME의 캐럿 위치 보정을 강제로 막아 조립이 완료된 후에도 캐럿이 줄 끝에 남아있는 현상이 발생한다.
+// "별 " 다음에 문자를 하나 조립해보자. 그러면 어떤 현상이 발생하는지 금세 알 수 있다.
+
+// 앞서 말했듯, IME가 조립 문자에 한해 캐럿의 위치를 보정해준다.
+// 시스템이 개입하여 캐럿 위치를 의도적으로 바꿔주기 때문에 시각적으로 가장 자연스럽다.
+// ImmSetCompositionWindow 같은 API를 통해 조합 위치를 조정하는데 이걸 직접 건드릴 필요도 없고 건드릴 수도 없다.
+
+// 때문에 이를 활용해야 하는데 한글은 자연스럽게 처리되므로 넘어가면 되고 알파벳이나 숫자같은 ASCII 문자에 대해서는 분기를 만들어 처리해야 한다.
+// 이를 위해 bAlphaNum 전역 변수를 추가하고, WM_IME_COMPOSITION 메세지에 현재 한/영 전환 상태를 확인하는 코드를 추가했다.
+// 또, WM_IME_CHAR와 WM_CHAR 메세지를 처리하는 함수 상단에 bAlphaNum을 결정하는 코드도 추가했다. 
+
+// 이렇게 하면 위 상황에서 조립 문자와 단일 문자에 대한 처리가 모두 끝난 것이다.
+// 확인해보면, 캐럿의 위치가 정상적으로 이동하는 것을 알 수 있다.
+
+BOOL bAlphaNum = TRUE;
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     return 0;
@@ -430,7 +476,6 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int start = 0, end = 0, toff = 0;
     int oldRow = 0;
     
-    
     switch (wParam) {
     case VK_UP:
         GetRowAndColumn(off, row, column);
@@ -517,13 +562,38 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     case VK_BACK:
         if (off == 0) { break; }
-        off = GetPrevOffset(off);
-        if (IsCRLF(off)) {
-            Delete(off, 2);
+        if (g_Option.wordWrap) {
+            GetRowAndColumn(off, row, column);
+            toff = GetPrevOffset(off);
+            if (column == 0) {
+                if (IsCRLF(toff)) {
+                    Delete(toff, 2);
+                }
+                else {
+                    bLineEnd = TRUE;
+                    Delete(toff, 1);
+                }
+            }
+            else {
+                if (IsCRLF(toff)) {
+                    Delete(toff, 2);
+                }
+                else {
+                    Delete(toff, 1);
+                }
+            }
+            off = toff;
         }
         else {
-            Delete(off, 1);
+            off = GetPrevOffset(off);
+            if (IsCRLF(off)) {
+                Delete(off, 2);
+            }
+            else {
+                Delete(off, 1);
+            }
         }
+        
         InvalidateRect(hWnd, NULL, TRUE);
         SetCaret();
         break;
@@ -598,6 +668,7 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 LRESULT OnChar(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     WCHAR Abuf[0x10];
     char ch = wParam;
+    bAlphaNum = TRUE;
 
     if ((ch < ' ' /* 제어코드(~32) */ && ch != '\r' && ch != '\t') || ch == 127 /* Ctrl + BS */) { return 0; }
     if (ch == '\r') {
@@ -624,7 +695,8 @@ LRESULT OnChar(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
 LRESULT OnImeChar(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     WCHAR Wbuf[0x10];
-
+    bAlphaNum = FALSE;
+    
     Wbuf[0] = wParam;
     Wbuf[1] = 0;
 
@@ -632,6 +704,7 @@ LRESULT OnImeChar(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         off -= 2;
         Delete(off, 1);
     }
+
     Insert(off, Wbuf);
     off += wcslen(Wbuf);
     bComp = FALSE;
@@ -647,6 +720,18 @@ LRESULT OnImeComposition(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     if (lParam & GCS_COMPSTR) {
         hImc = ImmGetContext(hWnd);
+        DWORD dwConversion, dwSentence;
+
+        if (ImmGetConversionStatus(hImc, &dwConversion, &dwSentence)) {
+            if (dwConversion & IME_CMODE_ALPHANUMERIC) {
+                // 영문 입력 모드
+                bAlphaNum = TRUE;
+            }
+            else {
+                bAlphaNum = FALSE;
+            }
+        }
+
         Length = ImmGetCompositionString(hImc, GCS_COMPSTR, NULL, 0);
         Cbuf = (WCHAR*)malloc(sizeof(WCHAR) * (Length + 1));
         memset(Cbuf, 0, sizeof(WCHAR) * (Length + 1));
@@ -687,7 +772,7 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     memset(buf, 0, sizeof(WCHAR) * bufLength);
-    wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n이돼지새끼야 그만처먹고 자라.");
+    wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
     // wcscpy_s(buf, bufLength, L"동해물과 백두산이 마르고 닳도록 하느님이 보우하사\r\nabcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz\r\n우리나라 만세 무궁화 삼천리 화려 강산 대한 사람 대한으로 길이 보전하세");
     docLength = wcslen(buf);
     off = 0;
@@ -826,26 +911,21 @@ BOOL Insert(int idx, WCHAR* str) {
     memcpy(buf + idx, str, length * sizeof(WCHAR));
     docLength += length;
 
-    // 문제의 본질이 삽입 위치와 캐럿 위치가 일치하지 않는다는 점에 있다는 것을 파악했다.
-    // 단어 단위 정렬을 지원하므로 삽입/삭제간 bLineEnd를 켜거나 꺼야 한다.
-    // 방향키는 이미 처리를 끝냈으므로 위 함수들만 수정하면 된다.
     if (g_Option.wordWrap) {
         int row, column, start, end;
         GetRowAndColumn(idx, row, column);
+
         start = lineInfo[row].start;
         end = lineInfo[row].end;
 
-        bLineEnd = FALSE;
-
-        if (end == idx && column > 0) {
-            bLineEnd = TRUE;
+        if (column > 0 && end == idx) {
+            // 한글같은 조립형 문자의 경우 IME가 자동으로 캐럿 위치를 조정해준다.
+            // 알파벳은 이러한 보정이 없으므로 직접 조정해야 한다
+            bLineEnd = bAlphaNum;
         }
-        
-        /*
-        if (...) {
-            ...
+        else {
+            bLineEnd = FALSE;
         }
-        */
     }
     else {
         bLineEnd = FALSE;
@@ -941,8 +1021,6 @@ void GetRowAndColumn(int idx, int& row, int& column) {
         int start = lineInfo[row].start;
         int end = lineInfo[row].end;
 
-        TraceFormat(L"row = %d, start = %d, end = %d\r\n", row, start, end);
-
         if (start < idx && idx < end) {
             break;
         }
@@ -979,7 +1057,7 @@ int GetOffset(int row, int column) {
 void GetCoordinate(int idx, int& x, int& y) {
     int row, column;
     GetRowAndColumn(idx, row, column);
-    TraceFormat(L"row = %d, column = %d\r\n", row, column);
+    // TraceFormat(L"row = %d, column = %d\r\n", row, column);
 
     y = row * LineHeight;
     x = 0;
