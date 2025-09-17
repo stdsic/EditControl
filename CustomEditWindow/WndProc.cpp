@@ -288,6 +288,25 @@ void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore);
 // del키를 눌러 삭제하는 코드는 그대로 두면 되고 VK_BACK만 수정하면 된다.
 // 단어 단위 정렬이 활성화 된 상태에서는 Backspace키를 눌렀을 때에도 bLineEnd를 활성/비활성 하는 코드가 추가되어야 캐럿이 제대로 움직인다.
 // 문자 단위 정렬에서는 이럴 필요가 없으므로 wordWrap을 기준으로 분기한다.
+// 
+// 이때 예외 처리해야될 것이 무엇이 있는지 살펴보자.
+// 1. wordWrap이 TRUE인가
+// 2. 현재 캐럿이 위치한 지점의 열 번호가 0인가. 즉, 가장 앞에 위치해 있는가
+// 3. 지우려고 하는 지점의 문자가 강제 개행 문자인가
+
+// 이를 토대로 의사 코드를 작성해보면 다음과 같다.
+// GetRowAndColumn
+// tempOffset = GetPrevOffset
+// if (WordWrap == TRUE) {
+//      if(IsCRLF(tempOffset)){
+//          bLineEnd = FALSE;
+//          Delete(toff, 2);
+//      }else{
+//          bLineEnd = TRUE;
+//          Delete(toff, 1);
+//      }
+// }
+// 이 논리 그대로 사용하면 충분할 것 같다. VK_BACK 코드를 위 의사코드를 참고하여 수정한다.
 
 // 이번엔 삽입 코드를 보자.
 // 삭제는 별로 어려울게 없다. 진짜 문제는 문자를 삽입할 때인데, 결론만 말하면 bAlphaNum 변수를 추가하기로 했다.
@@ -329,6 +348,59 @@ void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore);
 // 확인해보면, 캐럿의 위치가 정상적으로 이동하는 것을 알 수 있다.
 
 BOOL bAlphaNum = TRUE;
+
+// 이어서 그 다음 문제를 보자. 똑같이 삽입에서 문제가 발생하는데 이번엔 줄 앞에서의 삽입이 문제가 된다.
+// 단어 단위 정렬로 인해 자동 개행이 발생한 직후 다음 줄의 첫 번째 열 앞에 캐럿이 위치한 상황이라 가정한다.
+// 즉, "아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다." 문장에서 "문제는"의 앞에 캐럿이 위치한 상황이다.
+// 여기서 알파벳이나 숫자같은 단일 문자를 입력해보자.
+
+// 캐럿은 여전히 "문제는"의 앞에 위치해 있는데 글자는 "별 " 다음에 삽입된다.
+// 한글은 조립 문자라 IME의 지원을 받아 자동으로 이쁘게 처리되지만 단일 문자는 그렇지 않다.
+// 그래서 직접 캐럿의 위치를 조정해야 한다.
+
+// 진짜 단순하게 캐럿만 옮기면 끝이다.
+// 이 문제를 해결할 방법은 굉장히 다양하겠지만 여기서는 가장 단순한 방법을 사용하기로 한다.
+
+// 우선, 상황을 분석하여 의사코드를 만들어보자.
+// Column은 0이면서 row가 0보다 커야 한다.
+// 또, 이전 줄이 단어 단위 정렬로인한 자동 개행이 이뤄진 줄인지 판별해야 하고
+// 지금 입력하려는 문자가 단일 문자(영어 등)인지 판단해야 한다.
+
+// 복잡해보이는데 이미 다 만들어둔 함수를 이쁘게 쓰기만 하면 된다.
+// 이를 코드로 만들어보면 다음과 같다.
+// GetRowAndColumn(off, row, column);
+// if(column == 0 && row > 0){
+//      toff = GetPrevOffset(off);
+//      if(IsCRLF(toff) == FALSE){
+//          if(bAlphaNum){
+//              ...
+//          }
+//      }
+// }
+
+// 이미 Insert에 분기를 하나 만들어뒀는데 여기에 else if문만 하나 더 추가하면 끝이다. 위 코드를 참고하여 Insert 함수를 수정해보자.
+
+// 여기까지 하면 삽입/삭제 동작에서 캐럿의 위치가 자연스러워진다.
+
+// 사실 최근에는 캐럿 위치를 위 프로젝트처럼 억지로 끼워 맞추지 않고
+// 그냥 그대로 둔 상태에서 새로 조립하거나 삽입하는 문자가 있을 때
+// 해당 문자에 밑줄을 그어 작성하고 있는 문자임을 분명히 보여주는 방법을 많이 이용한다.
+
+// 즉, 캐럿이 줄 앞에 있고 이전 줄의 끝에 공간이 조금 남아 문자를 끼워 넣을 수 있는 상황일 때
+// 억지로 캐럿을 이전 줄로 옮기지 않고 그대로 둔 다음에 특별히 시각적인 처리(밑줄)를 하는 방법을 택한다.
+// 이렇게 하면 현재 자동 개행 로직으로 인해 발생하는 캐럿 위치의 부조화를 최소한의 비용으로 아주 이쁘게 처리할 수 있다.
+
+// 이는 현재 구조 특성에 따른 분명한 한계이다.
+// 현재 구조를 보면 전역 변수를 하나 두고 이를 여러 함수에서 참조하고 있는데
+// 이를 흔히 "공통 결합도를 가진다"라고 한다.
+// 곧, 모듈 독립성이 낮은 구조라 유지보수가 어려운건 물론이고 테스트하기도 복잡하다는 뜻이다.
+
+// 지금 만들고 있는 프로젝트의 코드를 보면 알겠지만 사실 굉장히 초보 수준이다.
+// 에디트 동작을 하나씩 살펴보고 어떻게 만들면 될지 논리적으로 생각하는 것에 목적을 두고 있다.
+// 즉, 완벽한 에디트 프로그램을 만드는게 목적이 아니기 때문에 최대한 여러 상황을 살펴보고 이를 해결하는 방법을 연구해볼 것이다.
+
+// 참고로, 위와 같은 문제는 문자 단위 정렬에서도 발생한다.
+// wordWrap을 기준으로 굳이 분기한 이유는 앞서 말했듯 여러 상황을 확인하고 연구해보기 위해서이다.
 
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
@@ -563,26 +635,36 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     case VK_BACK:
         if (off == 0) { break; }
         if (g_Option.wordWrap) {
+            off = GetPrevOffset(off);
             GetRowAndColumn(off, row, column);
-            toff = GetPrevOffset(off);
-            if (column == 0) {
-                if (IsCRLF(toff)) {
-                    Delete(toff, 2);
+
+            start = lineInfo[row].start;
+            end = lineInfo[row].end;
+
+            TraceFormat(L"off = %d, row = %d, column = %d\r\n", off, row, column);
+            if (column > 0 && off == end && buf[off] != '\r') {
+                bLineEnd = FALSE;
+                Delete(off, 1);
+            }
+            else if (column > 0 && off == end - 1) {
+                bLineEnd = TRUE;
+                if (IsCRLF(off)) {
+                    Delete(off, 2);
                 }
                 else {
-                    bLineEnd = TRUE;
-                    Delete(toff, 1);
+                    Delete(off, 1);
                 }
             }
             else {
-                if (IsCRLF(toff)) {
-                    Delete(toff, 2);
+                // 여기서는 bLineEnd를 조정할 필요가 없다.
+                if (IsCRLF(off)) {
+                    Delete(off, 2);
                 }
                 else {
-                    Delete(toff, 1);
+                    Delete(off, 1);
+
                 }
             }
-            off = toff;
         }
         else {
             off = GetPrevOffset(off);
@@ -591,9 +673,10 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             }
             else {
                 Delete(off, 1);
+
             }
         }
-        
+       
         InvalidateRect(hWnd, NULL, TRUE);
         SetCaret();
         break;
@@ -782,7 +865,7 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         HDC hdc = GetDC(hWnd);
         GetTextMetrics(hdc, &tm);
         FontHeight = tm.tmHeight;
-        // FontWidth = tm.tmAveCharWidth;
+        FontWidth = tm.tmAveCharWidth;
         ReleaseDC(hWnd, hdc);
     }
 
@@ -911,17 +994,22 @@ BOOL Insert(int idx, WCHAR* str) {
     memcpy(buf + idx, str, length * sizeof(WCHAR));
     docLength += length;
 
+    int row, column, start, end;
+    GetRowAndColumn(idx, row, column);
+
+    start = lineInfo[row].start;
+    end = lineInfo[row].end;
+
+    // bLineEnd = FALSE;
     if (g_Option.wordWrap) {
-        int row, column, start, end;
-        GetRowAndColumn(idx, row, column);
-
-        start = lineInfo[row].start;
-        end = lineInfo[row].end;
-
-        if (column > 0 && end == idx) {
+        if (column > 0 && end == idx && buf[idx] != '\r' && bAlphaNum) {
             // 한글같은 조립형 문자의 경우 IME가 자동으로 캐럿 위치를 조정해준다.
             // 알파벳은 이러한 보정이 없으므로 직접 조정해야 한다
-            bLineEnd = bAlphaNum;
+            bLineEnd = TRUE;
+        }
+        else if (column == 0 && row > 0 && bAlphaNum) {
+            int toff = GetPrevOffset(idx);
+            bLineEnd = !IsCRLF(toff);
         }
         else {
             bLineEnd = FALSE;
@@ -930,7 +1018,7 @@ BOOL Insert(int idx, WCHAR* str) {
     else {
         bLineEnd = FALSE;
     }
-
+    
     UpdateScrollInfo();
     RebuildLineInfo();
     return TRUE;
