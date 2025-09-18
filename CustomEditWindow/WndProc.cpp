@@ -277,7 +277,6 @@ void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore);
 // 어려운 코드는 없지만 GetCharWidth에 분기를 추가한 이유는 알고있어야 한다. 다시 말하지만, 현재 이분 탐색을 활용하고 있기 때문에 이런 처리가 필요하다.
 
 // TODO: 문장 끝에 탭이 반복될 경우 다음 줄로 넘어가면서 캐럿이 함께 이동된다. 캐럿을 처리할 때 분기를 추가해야 한다.
-// TODO: 탭 문자가 반복될 때 상하이동시 캐럿의 위치가 이상하다. 즉, 수평 좌표 처리가 이상해진다. 이 역시 수정이 필요하다. 
 
 // 하나씩 해결해보자. 문제의 본질은 다음과 같다.
 // 자동 개행을 수행하여 캐럿이 다음 줄로 이동했지만, 문자는 이전 줄에 삽입된다.
@@ -402,8 +401,27 @@ BOOL bAlphaNum = TRUE;
 // 참고로, 위와 같은 문제는 문자 단위 정렬에서도 발생한다.
 // wordWrap을 기준으로 굳이 분기한 이유는 앞서 말했듯 여러 상황을 확인하고 연구해보기 위해서이다.
 
-LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+// TODO: 탭 문자가 반복될 때 상하이동시 캐럿의 위치가 이상하다. 즉, 수평 좌표 처리가 이상해진다. 이 역시 수정이 필요하다. 
+// 이 문제는 실행 순서가 잘못되어서 그렇다. ptr += 1 코드 뒤에 if(Width >= dest){...} 분기문이 위치하도록 자리를 바꿔보자.
+// 아주 간단하게 해결된다.
 
+// 이번엔 마우스로 캐럿 위치를 옮길 수 있도록 만들어보자.
+// 왼쪽 버튼을 눌렀을 때 반응하도록 만들면 되므로 LBUTTONDOWN 메세지에서 처리한다.
+// 일단 유틸리티 함수부터 만들어보자.
+
+int GetOffsetFromPoint(int x, int y);
+int GetOffsetFromPoint(POINT Mouse);
+
+// 소스 코드 상단에 보면 #define GET_X_LPARAM과 #define GET_Y_LPARAM 매크로가 있다.
+// 반드시 이 둘을 사용하여야 다중 모니터 환경에서도 제대로 동작한다.
+// 마우스가 캡처된 상황이라면 클라이언트 영역을 벗어난 상태에서도 좌표값이 전달되는데
+// 일반적으로 LBUTTONDOWN 메세지보단 LBUTTONUP이나 MOUSEMOVE 메세지에서 음수 좌표값이 발생한다.
+// 이를 감안하여 min, max 함수도 활용하고 있는데 전체적인 로직을 보면 GetDocsXPosOnLine 함수와 비슷하다는 걸 알 수 있다.
+
+LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+    off = GetOffsetFromPoint(x + xPos, y + yPos);
+    SetCaret();
     return 0;
 }
 
@@ -1314,29 +1332,27 @@ void RebuildLineInfo() {
 int GetDocsXPosOnLine(int row, int dest) {
     int start = lineInfo[row].start;
     int end = lineInfo[row].end;
-    
-    int len = end - start;
     WCHAR* ptr = buf + start;
 
-    int Width = 0;
     if (dest == 0) { 
         return start;
     }
-    else {
-        while (ptr - buf != end) {
-            if (*ptr == '\t') {
-                Width = (Width / TabSize + 1) * TabSize;
-            }
-            else {
-                Width += GetCharWidth(ptr, 1);
-            }
 
-            if (Width >= dest) { break; }
-            ptr += 1;
+    int Width = 0, len = 0;
+    while (ptr - buf < end) {
+        if (*ptr == '\t') {
+            Width = (Width / TabSize + 1) * TabSize;
         }
-    }
+        else {
+            Width += GetCharWidth(ptr, 1);
+        }
+        ptr += 1;
 
+        if (Width >= dest) { break; }
+    }
+    
     int ret = ptr - buf;
+    TraceFormat(L"row = %d, dest = %d, start = %d, end = %d, ret = %d, Width = %d\r\n", row, dest, start, end, ret, Width);
     if (ret == end && buf[ret] != '\r' && buf[ret] != 0) {
         bLineEnd = TRUE;
     }
@@ -1448,4 +1464,50 @@ void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore) {
             x += GetCharWidth(buf + idx, length);
         }
     }
+}
+
+int GetOffsetFromPoint(int x, int y) {
+    // 캡처 상태를 가정하여 음수값이 발생하지 않도록 조정 - 보통 MOUSEMOVE, LBUTTONUP 메세지에서 발생
+    x = max(0, x);
+    y = max(0, y);
+
+    int row, start, end;
+
+    row = y / LineHeight;
+    row = min(row, lineCount - 1);
+
+    start = lineInfo[row].start;
+    end = lineInfo[row].end;
+
+    int chWidth, acWidth;
+    acWidth = chWidth = 0;
+
+    WCHAR* ptr = buf + start;
+    while (ptr - buf < end) {
+        if (*ptr == '\t') {
+            chWidth = (acWidth / TabSize + 1) * TabSize - acWidth;
+        }
+        else {
+            chWidth = GetCharWidth(ptr, 1);
+        }
+
+        acWidth += chWidth;
+        // 글자의 중앙을 기준으로 좌우를 나누어 비교한다
+        if (acWidth - chWidth / 2 >= x) { break; }
+
+        ptr += 1;
+    }
+
+    if (ptr - buf == end && buf[ptr - buf] != '\r' && buf[off] != 0) {
+        bLineEnd = TRUE;
+    }
+    else {
+        bLineEnd = FALSE;
+    }
+
+    return ptr - buf;
+}
+
+int GetOffsetFromPoint(POINT Mouse) {
+    return GetOffsetFromPoint(Mouse.x, Mouse.y);
 }
