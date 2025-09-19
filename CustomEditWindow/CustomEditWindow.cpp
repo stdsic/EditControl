@@ -44,7 +44,7 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
     HWND hWnd = CreateWindow(
         CLASS_NAME,
         CLASS_NAME,
-        WS_OVERLAPPEDWINDOW | WS_VSCROLL,
+        WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL,
         CW_USEDEFAULT, CW_USEDEFAULT, 300, 200,
         NULL,
         (HMENU)NULL,

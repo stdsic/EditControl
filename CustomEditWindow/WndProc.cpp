@@ -197,7 +197,7 @@ struct WrapOptions {
     BOOL KeepPunctWithWord;
     BOOL kjcCharWrap;
 } g_Option = {
-  TRUE,
+  FALSE,
   FALSE,
   TRUE,
   FALSE,
@@ -270,7 +270,7 @@ int TabWidth, TabSize;
 // 먼저, 각 줄을 그리는 함수이다.
 int DrawLine(HDC hdc, int line);
 // 각 줄의 정보를 가지고 문자열을 화면에 출력할 때 탭 문자를 인식하도록 만들어보자.
-void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore);
+void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore, COLORREF fg, COLORREF bg);
 // 정렬에서 탭을 인식해야 하므로 우선, IsWhiteChar 함수를 수정해야 한다.
 // 이후 GetCharWidth에서 탭을 인식하도록 만들어야 하는데 FindWrapPoint에서 이분 탐색을 활용하기 때문에 이 함수에 직접 분기를 추가했다.
 // 외에 화면 좌표를 사용하는 함수에선 직접 현재 포인터가 가리키는 지점이 탭 문자('\t')인지 확인하고 좌표값을 계산하도록 만들었다.
@@ -418,25 +418,120 @@ int GetOffsetFromPoint(POINT Mouse);
 // 일반적으로 LBUTTONDOWN 메세지보단 LBUTTONUP이나 MOUSEMOVE 메세지에서 음수 좌표값이 발생한다.
 // 이를 감안하여 min, max 함수도 활용하고 있는데 전체적인 로직을 보면 GetDocsXPosOnLine 함수와 비슷하다는 걸 알 수 있다.
 
+// 다음은 키보드와 마우스로 문자열을 일정 범위만큼 선택하는 기능을 추가해보자.
+// 일정 범위를 선택하는 것이므로 SelcectStart, SelectEnd 따위의 변수를 만들어 관리하면 충분할 것이다.
+// 또, 마우스의 왼쪽 버튼을 누른 상태에서 드래그하여 일정 범위를 선택하는 동작이 필요하므로 마우스를 캡처해야 한다.
+// 선택된 영역을 표현하려면 직접 그려야하므로 백그라운드와 포그라운드를 칠할 브러시도 만들어야 한다.
+// 뿐만 아니라 메인 윈도우가 키보드 입력을 받을 수 없는 상태일 때의 상황도 생각해봐야 한다.
+// 키보드 입력을 받을 수 있는 상태가 되면 SetFocus 메세지가 보내지는데 이때 선택된 영역이 있다면 눈에 띄도록 색을 변경하고
+// 키보드 입력을 받을 수 없는 상태일 때에는 괜히 시선이 분산되지 않게 어두운 계열로 덧칠하는 것이 좋다.
+// 물론 프로그램마다 다르지만 이 프로젝트에서는 그렇게 진행한다.
+// WM_CREATE에서 변수를 초기화하고 WM_SETFOCUS 메세지에 선택 영역의 백그라운드와 포그라운드 색상을 변경하는 코드를 추가하자.
+
+int SelectStart, SelectEnd;
+BOOL bCapture;
+COLORREF SelectFgColor, SelectBgColor;
+int HideType;
+
+// 이번엔 선택된 영역을 그려보자.
+// WM_PAINT에서 그리기를 담당하고 있지만 실제 문자열을 출력하는 것은 DrawLine 함수가 담당한다.
+// DrawLine에서 각 줄에 대해 선택 영역이 있는지 확인하고 백그라운드와 포그라운드 색상을 만들어 DrawSegment에 전달하면
+// DrawSegment가 해당 영역을 사각 영역으로 그린 후 전달받은 색상으로 칠하기만 하면 된다.
+// 결국 DrawLine이 탭 문자 + 선택 영역을 기준으로 조각을 나누게 된 것이다.
+// 이를 적용하여 DrawLine 함수와 DrawSegment 함수를 고쳐보자.
+// 여기까지 작성한 후에 SelectStart와 SelectEnd를 상수 값으로 설정하고 확인해보면 선택 영역이 이쁘게 그려지는 것을 볼 수 있다.
+
+// 이제 마우스로 선택할 수 있게 수정해보자.
+// WM_LBUTTONDOWN과 WM_MOUSEMOVE, WM_LBUTTONUP 메세지를 모두 사용한다.
+
+// 그 다음은 스크롤 지원이다.
+// 문자열이 여러 줄 있을 때 스크롤 되어 보이지 않는 범위까지 선택해야 한다고 가정해보자.
+// 이때 드래그중 화면이 스크롤되지 않으면 보이지 않는 범위를 선택할 수 없다.
+// 일반적인 에디트에서는 모두 지원하는 기본적인 동작이므로 이 기능도 추가해야 하는데,
+// 문제는 WM_MOUSEMOVE 메세지가 발생하는 시점이 "마우스가 이동할 때"라는 것이다.
+// 결론부터 말하면 WM_MOUSEMOVE만 이용해서는 화면 높이보다 긴 문서를 스크롤 할 수 없다.
+// 때문에 마우스가 작업 영역을 벗어나면 타이머를 설치하여 주기적으로 스크롤 되게 만들어야 한다.
+// 메모장도 이러한 동작을 지원하는데 긴 문장을 붙여넣고 범위를 선택하여 작업 영역을 벗어나게 드래그해보자.
+// 마우스가 작업 영역을 벗어난 후 마우스 이동을 멈추면 마우스가 향한 방향으로 알아서 스크롤 되는 것을 볼 수 있다.
+
+// 위 내용 대부분은 WM_MOUSEMOVE에서 처리 가능하므로 이 메세지에 처리 로직을 추가해보자.
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+
+    if (SelectStart != SelectEnd) {
+        SelectStart = SelectEnd = 0;
+        InvalidateRect(hWnd, NULL, TRUE);
+    }
+    
     off = GetOffsetFromPoint(x + xPos, y + yPos);
+    SelectStart = SelectEnd = off;
+    SetCapture(hWnd);
+    bCapture = TRUE;
     SetCaret();
     return 0;
 }
 
 LRESULT OnMouseMove(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    if (!bCapture) { return 0; }
+    int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+
+    off = SelectEnd = GetOffsetFromPoint(x + xPos, y + yPos);
+    SetCaret();
+    InvalidateRect(hWnd, NULL, TRUE);
+
+    int row, column, start, end;
+    BOOL bInstallTimer = FALSE;
+
+    if (y > g_crt.bottom) {
+        SendMessage(hWnd, WM_VSCROLL, SB_LINEDOWN, 0);
+        bInstallTimer = TRUE;
+    }
+
+    if (y < 0) {
+        SendMessage(hWnd, WM_VSCROLL, SB_LINEUP, 0);
+        bInstallTimer = TRUE;
+    }
+
+    if (!g_Option.wordWrap && !g_Option.kjcCharWrap) {
+        GetRowAndColumn(SelectEnd, row, column);
+        start = lineInfo[row].start;
+        end = lineInfo[row].end;
+
+        if (x > g_crt.right && SelectEnd != end) {
+            // TODO: 분기 실행 되는데 스크롤 안되는 원인 찾을 것
+            TraceFormat(L"x = %d, row = %d, column = %d, SelectEnd = %d, start = %d, end = %d, g_crt = (%d,%d,%d,%d)\r\n", x, row, column, SelectEnd, start, end, g_crt.left, g_crt.top, g_crt.right, g_crt.bottom);
+            SendMessage(hWnd, WM_HSCROLL, SB_LINERIGHT, 0);
+            bInstallTimer = TRUE;
+        }
+        if (x < 0 && SelectEnd != start) {
+            SendMessage(hWnd, WM_HSCROLL, SB_LINELEFT, 0);
+            bInstallTimer = TRUE;
+        }
+    }
+
+    if (bInstallTimer) {
+        SetTimer(hWnd, 1, 100, NULL);
+    }
+    else {
+        KillTimer(hWnd, 1);
+    }
 
     return 0;
 }
 
 LRESULT OnLButtonUp(HWND hWnd, WPARAM wParam, LPARAM lParam) {
-
+    bCapture = FALSE;
+    ReleaseCapture();
+    KillTimer(hWnd, 1);
     return 0;
 }
 
 LRESULT OnSetFocus(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     SetCaret(FALSE, FALSE);
+
+    SelectFgColor = GetSysColor(COLOR_HIGHLIGHTTEXT);
+    SelectBgColor = GetSysColor(COLOR_HIGHLIGHT);
     return 0;
 }
 
@@ -546,6 +641,15 @@ LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 LRESULT OnTimer(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    POINT Mouse;
+
+    switch (wParam) {
+    case 1:
+        GetCursorPos(&Mouse);
+        ScreenToClient(hWnd, &Mouse);
+        SendMessage(hWnd, WM_MOUSEMOVE, 0, MAKELPARAM(Mouse.x, Mouse.y));
+        break;
+    }
 
     return 0;
 }
@@ -870,7 +974,10 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     PrevX = 0;
     xMax = 1024;
     xPos = yPos = 0;
-
+    SelectStart = SelectEnd = 0;
+    bCapture = FALSE;
+    HideType = 1;
+    
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     memset(buf, 0, sizeof(WCHAR) * bufLength);
     wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
@@ -1101,8 +1208,14 @@ void GetLine(int line, int& start, int& end) {
         lineEnd++;
     }
 
-    start = lineStart;
-    end = FindWrapPoint(lineStart, lineEnd);
+    if (g_Option.wordWrap || g_Option.kjcCharWrap) {
+        start = lineStart;
+        end = FindWrapPoint(lineStart, lineEnd);
+    }
+    else {
+        start = lineStart;
+        end = lineEnd;
+    }
 }
 
 // 자동 개행된 경우 줄의 끝과 다음 줄의 처음이 같은 오프셋을 가진다는게 핵심 문제이다.
@@ -1352,7 +1465,6 @@ int GetDocsXPosOnLine(int row, int dest) {
     }
     
     int ret = ptr - buf;
-    TraceFormat(L"row = %d, dest = %d, start = %d, end = %d, ret = %d, Width = %d\r\n", row, dest, start, end, ret, Width);
     if (ret == end && buf[ret] != '\r' && buf[ret] != 0) {
         bLineEnd = TRUE;
     }
@@ -1422,20 +1534,60 @@ int DrawLine(HDC hdc, int line) {
     x = 0 - xPos;
     idx = start;
 
+    BOOL bInSelect;
+    COLORREF fg, bg;
+    
+    // 앞 뒤를 알 수 없으므로 정규화
+    int SelectFirst = min(SelectStart, SelectEnd), SelectSecond = max(SelectStart, SelectEnd);
+
     while (1) {
         length = 0;
         while (1) {
             if (buf[idx + length] == '\t') { 
                 if (length == 0) { length = 1; }
+                if (SelectStart != SelectEnd && idx >= SelectFirst && idx < SelectSecond) {
+                    bInSelect = TRUE;
+                }
+                else {
+                    bInSelect = FALSE;
+                }
                 break;
             }
 
-            if (idx + length == end) { break; }
+            if (idx + length == end) { 
+                if (SelectStart != SelectEnd && idx >= SelectFirst && idx < SelectSecond) {
+                    bInSelect = TRUE;
+                }
+                else {
+                    bInSelect = FALSE;
+                }
+                break;
+            }
             
+            if (SelectStart != SelectEnd && length != 0 && idx + length == SelectFirst) {
+                bInSelect = FALSE;
+                break;
+            }
+
+            if (SelectStart != SelectEnd && length != 0 && idx + length == SelectSecond) {
+                bInSelect = TRUE;
+                break;
+            }
+
             length++;
         }
 
-        DrawSegment(hdc, x, line * LineHeight - yPos, idx, length, (idx + length == end));
+        if (bInSelect) {
+            fg = SelectFgColor;
+            bg = SelectBgColor;
+        }
+        else {
+            fg = RGB(0, 0, 0);
+            bg = GetSysColor(COLOR_WINDOW);
+        }
+
+        DrawSegment(hdc, x, line * LineHeight - yPos, idx, length, (idx + length == end), fg, bg);
+
         idx += length;
         if (idx == end) { return 1; }
     }
@@ -1444,8 +1596,11 @@ int DrawLine(HDC hdc, int line) {
 
 // 조각이란 한 번에 같이 출력할 수 있는 성질이 같은 문자열의 집합으로 정의된다.
 // 여기서는 탭만 구분자로 사용된다.
-void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore) {
+void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore, COLORREF fg, COLORREF bg) {
     int docx;
+    int oldx;
+    RECT rt;
+    HBRUSH hBrush;
 
     // 여기서 x는 화면상의 좌표인데
     // 수평 스크롤로 인해 출력해야할 문자의 좌표가 음수값이 되면
@@ -1453,12 +1608,19 @@ void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore) {
     // 따라서, x를 화면상의 좌표로 받아 간단히 출력하되
     // 탭 문자를 만난 경우에는 공식을 적용하기 위해 문서상의 좌표로 변환하고 다시 화면 좌표로 되돌려야 한다.
     if (buf[idx] == '\t') {
+        oldx = x;
         docx = x + xPos;
         docx = (docx / TabSize + 1) * TabSize;
         x = docx - xPos;
+        SetRect(&rt, oldx, y, x + 1, y + FontHeight);
+        hBrush = CreateSolidBrush(bg);
+        FillRect(hdc, &rt, hBrush);
+        DeleteObject(hBrush);
     }
     else {
         // 기존과 같이 출력
+        SetTextColor(hdc, fg);
+        SetBkColor(hdc, bg);
         TextOut(hdc, x, y, buf + idx, length);
         if (ignore == FALSE) {
             x += GetCharWidth(buf + idx, length);
