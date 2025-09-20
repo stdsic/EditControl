@@ -580,8 +580,6 @@ LRESULT OnHScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     increase = max(-xPos, min(increase, xMax - xPos));
     xPos += increase;
-
-    TraceFormat(L"Increase = %d, xPos = %d, xMax = %d\r\n", increase, xPos, xMax);
     ScrollWindow(hWnd, -increase, 0, NULL, NULL);
     SetScrollPos(hWnd, SB_HORZ, xPos, TRUE);
 
@@ -596,7 +594,7 @@ LRESULT OnVScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     per = (g_crt.bottom / LineHeight) * LineHeight;
     increase = 0;
 
-    switch (wParam) {
+    switch (LOWORD(wParam)) {
     case SB_LINEUP:
         increase = -LineHeight;
         break;
@@ -658,8 +656,8 @@ LRESULT OnSize(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             SetCaret();
         }
         GetClientRect(hWnd, &g_crt);
-        UpdateScrollInfo();
         RebuildLineInfo();
+        UpdateScrollInfo();
     }
     return 0;
 
@@ -1004,6 +1002,7 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     lineInfo = (LineInfo*)malloc(sizeof(LineInfo) * lineInfoSize);
     memset(lineInfo, 0, sizeof(lineInfo) * lineInfoSize);
     
+    RebuildLineInfo();
     UpdateScrollInfo();
     return 0;
 }
@@ -1141,9 +1140,9 @@ BOOL Insert(int idx, WCHAR* str) {
     else {
         bLineEnd = FALSE;
     }
-    
-    UpdateScrollInfo();
+
     RebuildLineInfo();
+    UpdateScrollInfo();
     return TRUE;
 }
 
@@ -1154,8 +1153,8 @@ BOOL Delete(int idx, int cnt) {
     memmove(buf + idx, buf + idx + cnt, move * sizeof(WCHAR));
     docLength -= cnt;
 
-    UpdateScrollInfo();
     RebuildLineInfo();
+    UpdateScrollInfo();
     return TRUE;
 }
 
@@ -1274,7 +1273,6 @@ int GetOffset(int row, int column) {
 void GetCoordinate(int idx, int& x, int& y) {
     int row, column;
     GetRowAndColumn(idx, row, column);
-    // TraceFormat(L"row = %d, column = %d\r\n", row, column);
 
     y = row * LineHeight;
     x = 0;
