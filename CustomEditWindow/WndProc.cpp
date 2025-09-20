@@ -499,8 +499,6 @@ LRESULT OnMouseMove(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         end = lineInfo[row].end;
 
         if (x > g_crt.right && SelectEnd != end) {
-            // TODO: 분기 실행 되는데 스크롤 안되는 원인 찾을 것
-            TraceFormat(L"x = %d, row = %d, column = %d, SelectEnd = %d, start = %d, end = %d, g_crt = (%d,%d,%d,%d)\r\n", x, row, column, SelectEnd, start, end, g_crt.left, g_crt.top, g_crt.right, g_crt.bottom);
             SendMessage(hWnd, WM_HSCROLL, SB_LINERIGHT, 0);
             bInstallTimer = TRUE;
         }
@@ -555,7 +553,7 @@ LRESULT OnHScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     SCROLLINFO si;
     int increase = 0;
 
-    switch (wParam) {
+    switch (LOWORD(wParam)) {
     case SB_LINELEFT:
         increase = -FontHeight;
         break;
@@ -578,22 +576,23 @@ LRESULT OnHScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         GetScrollInfo(hWnd, SB_HORZ, &si);
         increase = si.nTrackPos - xPos;
         break;
-
-    default:
-        break;
     }
 
     increase = max(-xPos, min(increase, xMax - xPos));
     xPos += increase;
+
+    TraceFormat(L"Increase = %d, xPos = %d, xMax = %d\r\n", increase, xPos, xMax);
     ScrollWindow(hWnd, -increase, 0, NULL, NULL);
     SetScrollPos(hWnd, SB_HORZ, xPos, TRUE);
+
     return 0;
 }
+
 LRESULT OnVScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
-    SCROLLINFO si;
     int increase;
     int per;
-
+    SCROLLINFO si;
+    
     per = (g_crt.bottom / LineHeight) * LineHeight;
     increase = 0;
 
@@ -763,7 +762,6 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             start = lineInfo[row].start;
             end = lineInfo[row].end;
 
-            TraceFormat(L"off = %d, row = %d, column = %d\r\n", off, row, column);
             if (column > 0 && off == end && buf[off] != '\r') {
                 bLineEnd = FALSE;
                 Delete(off, 1);
@@ -1660,14 +1658,15 @@ int GetOffsetFromPoint(int x, int y) {
         ptr += 1;
     }
 
-    if (ptr - buf == end && buf[ptr - buf] != '\r' && buf[off] != 0) {
+    int ret = ptr - buf;
+    if (ret == end && buf[ret] != '\r' && buf[ret] != 0) {
         bLineEnd = TRUE;
     }
     else {
         bLineEnd = FALSE;
     }
 
-    return ptr - buf;
+    return ret;
 }
 
 int GetOffsetFromPoint(POINT Mouse) {
