@@ -197,7 +197,7 @@ struct WrapOptions {
     BOOL KeepPunctWithWord;
     BOOL kjcCharWrap;
 } g_Option = {
-  FALSE,
+  TRUE,
   FALSE,
   TRUE,
   FALSE,
@@ -455,6 +455,24 @@ int HideType;
 // 마우스가 작업 영역을 벗어난 후 마우스 이동을 멈추면 마우스가 향한 방향으로 알아서 스크롤 되는 것을 볼 수 있다.
 
 // 위 내용 대부분은 WM_MOUSEMOVE에서 처리 가능하므로 이 메세지에 처리 로직을 추가해보자.
+// 줄 정보를 갱신하는 함수가 스크롤 정보를 갱신하는 함수보다 늦게 호출되어 스크롤바가 제대로 범위를 갖추지 못한 상황이었다.
+// xMax 값도 갱신이 제대로 되지 않은 상태였고, 이로 인해 우측 스크롤 기능이 제대로 동작하지 않는 상태였다.
+// RebuildLineInfo 함수를 호출하는 지점에 UpdateScrollInfo 함수도 붙어있으므로 둘의 순서만 바꿔주면 된다.
+
+// 다음은 선택 영역이 있고, 포커스를 잃었을 때의 처리를 해보자.
+// 하이라이트 색상이 아니라 회색 바탕에 검은색 전경으로 변경하기만 하면 된다.
+// KillFocus와 SetFocus에서 각각 다시 그리도록 요청하되 KillFocus에서는 색상값을 변경한다.
+// DrawLine도 약간의 수정이 필요하다. 선택 영역(bInSelect)이 있고, 메인 윈도우가 포커스를 받은 상태(GetFocus == hWndMain)일 때 또는 HIdeType이 0이 아닐 때 배경과 전경 색상을 하이라이트 값으로 바꾼다.
+// 기존 분기 조건에 한 가지 조건이 더 추가된 것 뿐이다.
+// 이를 코드로 작성하고 실행해보면 포커스를 잃은 상태일 때 색상이 변하는 것을 볼 수 있다.
+
+// 이번엔 특수키와 방향키를 조합하여 선택 및 이동 기능을 추가해보자.
+// 일반적으로 사용되는 Ctrl, Shift 조합을 떠올리면 된다.
+// 우선, 필요한 함수부터 만들어보자.
+
+BOOL IsDelims(int idx);
+int GetPrevWord(int idx);
+int GetNextWord(int idx);
 
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
@@ -530,11 +548,26 @@ LRESULT OnSetFocus(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     SelectFgColor = GetSysColor(COLOR_HIGHLIGHTTEXT);
     SelectBgColor = GetSysColor(COLOR_HIGHLIGHT);
+
+    if (HideType != 2 && SelectStart != SelectEnd) {
+        InvalidateRect(hWnd, NULL, TRUE);
+    }
+
     return 0;
 }
 
 LRESULT OnKillFocus(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     DestroyCaret();
+
+    if (HideType != 2) {
+        SelectFgColor = RGB(0, 0, 0);
+        SelectBgColor = RGB(192, 192, 192);
+    }
+
+    if (HideType != 2 && SelectStart != SelectEnd) {
+        InvalidateRect(hWnd, NULL, TRUE);
+    }
+
     return 0;
 }
 LRESULT OnMouseWheel(HWND hWnd, WPARAM wParam, LPARAM lParam) {
@@ -1573,7 +1606,7 @@ int DrawLine(HDC hdc, int line) {
             length++;
         }
 
-        if (bInSelect) {
+        if (bInSelect && (GetFocus() == hWndMain || HideType != 0)) {
             fg = SelectFgColor;
             bg = SelectBgColor;
         }
@@ -1669,4 +1702,39 @@ int GetOffsetFromPoint(int x, int y) {
 
 int GetOffsetFromPoint(POINT Mouse) {
     return GetOffsetFromPoint(Mouse.x, Mouse.y);
+}
+
+BOOL IsDelims(int idx) {
+    static WCHAR delims[] = L" \t\r\n\"\'\\,.<>:;/(){}[]~!@#$%^&*-+?=";
+    return (wcsrchr(delims, buf[idx]) || buf[idx] == 0);
+}
+
+int GetPrevWord(int idx) {
+    if (idx == 0) { return idx; }
+
+    while (idx--) {
+        if (IsDelims(idx) == FALSE || idx == 0) { break; }
+    }
+
+    while (1) {
+        if (IsDelims(idx) == TRUE || idx == 0) { break; }
+        idx--;
+    }
+
+    if (idx != 0) { idx++; }
+    return idx;
+}
+
+int GetNextWord(int idx) {
+    while (1) {
+        if (IsDelims(idx) == TRUE) { break; }
+        idx++;
+    }
+
+    while (1) {
+        if (IsDelims(idx) == FALSE || buf[idx] == 0) { break; }
+        idx++;
+    }
+
+    return idx;
 }
