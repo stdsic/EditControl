@@ -474,13 +474,31 @@ BOOL IsDelims(int idx);
 int GetPrevWord(int idx);
 int GetNextWord(int idx);
 
+// 단어 단위 이동을 수행하는 함수와 구분자 판별 함수를 만들었다.
+// 구분자를 이용해 단어 단위로 이동하면 되는데 함수의 내부 로직을 보면 다소 이해하기 어렵다.
+// 상황은 두 가지로 나뉘는데 FindWrapPoint의 논리 로직을 일부 사용했다고 보면된다.
+// 문자셋을 나누지 않고 구분자만 이용하는데 문자의 중간에 있을 때나 앞에 있을 때를 기준으로 작성하였다.
+// 함수 이름이 워낙 설명적이기 때문에 위 두 가지 경우를 떠올리면서 시뮬레이션 해보면 금방 어떤 로직인지 이해할 수 있다.
+
+// 그 다음은 좌우 이동에 이 함수를 적용해보자.
+// 영역을 선택하는 동작을 포함하여야 하므로 도우미 함수도 몇 개 추가되어야 한다.
+void ClearSelection();
+void ExpandSelection(int start, int end);
+
+// ClearSelection은 선택 영역이 있으면 시작과 끝을 0으로 만들고 화면을 다시 그린다.
+// ExpandSelection은 영역을 확장하는 동작을 하는데 코드도 딱히 어려울 것이 없다.
+// 현재 구조와 이미 작성한 함수를 고려하여 선택과 단어 단위 이동을 떠올린 그대로 구현한다.
+// Shift와 Ctrl은 서로 다른 기능을 갖기 때문에 따로 처리해야 하는데 순서를 어떻게 해야할지 고민해봐야 한다.
+// 사실 답이 정해져 있다고 보면 되는데 Shift + Ctrl 조합키를 이용한다고 가정해보자.
+// Ctrl 동작을 먼저 수행하지 않고 Shift동작을 먼저 수행하게 되면 불필요한 코드가 반복된다.
+// Ctrl로 단어 단위 이동을 수행하여 오프셋값을 수정한 이후에 Shift 키 처리를 하면 자연스럽다.
+// 그 외에는 딱히 어려울 것이 없으므로 변경된 코드를 보고 분석해보자.
+// WM_KEYDOWN 메세지의 처리 로직이 대부분 변경되었으므로 반드시 한 번 살펴봐야 한다.
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
 
-    if (SelectStart != SelectEnd) {
-        SelectStart = SelectEnd = 0;
-        InvalidateRect(hWnd, NULL, TRUE);
-    }
+    ClearSelection();
     
     off = GetOffsetFromPoint(x + xPos, y + yPos);
     SelectStart = SelectEnd = off;
@@ -700,22 +718,70 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int start = 0, end = 0, toff = 0;
     int oldRow = 0;
     
+    BOOL bShift, bCtrl;
+    bShift = ((GetKeyState(VK_SHIFT) & 0x8000) != 0);
+    bCtrl = ((GetKeyState(VK_CONTROL) & 0x8000) != 0);
+
     switch (wParam) {
     case VK_UP:
+        if (bCtrl && bShift) { break; }
         GetRowAndColumn(off, row, column);
         if (row > 0) {
+            if (bCtrl) {
+                SendMessage(hWnd, WM_VSCROLL, SB_LINEUP, 0);
+                if (row != (g_crt.bottom + yPos) / LineHeight) { break; }
+            }
+            toff = off;
             row--;
             off = GetDocsXPosOnLine(row, PrevX);
+            if (bShift) {
+                ExpandSelection(toff, off);
+            }
+            else {
+                if (SelectStart != SelectEnd) {
+                    off = min(SelectStart, SelectEnd);
+                    ClearSelection();
+                    SetCaret();         // PrevX 갱신
+                    SendMessage(hWnd, WM_KEYDOWN, VK_UP, 0);
+                }
+            }
             SetCaret(FALSE);
+        }
+
+        if (!bShift) {
+            ClearSelection();
         }
         break;
 
     case VK_DOWN:
+        if (bCtrl && bShift) { break; }
+
         GetRowAndColumn(off, row, column);
+        if (bCtrl) {
+            SendMessage(hWnd, WM_VSCROLL, SB_LINEDOWN, 0);
+            if (row != yPos / LineHeight - 1) { break; }
+        }
+
         if (row < lineCount - 1) {
+            toff = off;
             row++;
             off = GetDocsXPosOnLine(row, PrevX);
+            if (bShift) {
+                ExpandSelection(toff, off);
+            }
+            else {
+                if (SelectStart != SelectEnd) {
+                    off = max(SelectStart, SelectEnd);
+                    ClearSelection();
+                    SetCaret();         // PrevX 갱신
+                    SendMessage(hWnd, WM_KEYDOWN, VK_DOWN, 0);
+                }
+            }
             SetCaret(FALSE);
+        }
+
+        if (!bShift) {
+            ClearSelection();
         }
         break;
 
@@ -733,19 +799,39 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             start = lineInfo[row].start;
             end = lineInfo[row].end;
             
-            if (off == start) {
-                if (buf[GetPrevOffset(off)] == '\r') {
-                    off = GetPrevOffset(off);
-                    bLineEnd = FALSE;
-                }else{
-                    bLineEnd = TRUE;
-                }
+            toff = off;
+            if (bCtrl) {
+                off = GetPrevWord(off);
             }
             else {
-                off = GetPrevOffset(off);
-                bLineEnd = FALSE;
+                if (off == start) {
+                    if (buf[GetPrevOffset(off)] == '\r') {
+                        off = GetPrevOffset(off);
+                        bLineEnd = FALSE;
+                    }
+                    else {
+                        bLineEnd = TRUE;
+                    }
+                }
+                else {
+                    off = GetPrevOffset(off);
+                    bLineEnd = FALSE;
+                }
+            }
+            
+            if (bShift) {
+                ExpandSelection(toff, off);
+            }
+            else {
+                if (SelectStart != SelectEnd) {
+                    off = min(SelectStart, SelectEnd);
+                }
             }
             SetCaret();
+        }
+
+        if (!bShift) {
+            ClearSelection();
         }
         break;
 
@@ -755,22 +841,41 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             start = lineInfo[row].start;
             end = lineInfo[row].end;
 
-            if (off == end) {
-                if (buf[end] == '\r') {
-                    off = GetNextOffset(off);
-                }
-                bLineEnd = FALSE;
+            toff = off;
+            if (bCtrl) {
+                off = GetNextWord(off);
             }
             else {
-                off = GetNextOffset(off);
-                if (off == end && buf[off] != '\r') {
-                    bLineEnd = TRUE;
+                if (off == end) {
+                    if (buf[end] == '\r') {
+                        off = GetNextOffset(off);
+                    }
+                    bLineEnd = FALSE;
                 }
                 else {
-                    bLineEnd = FALSE;
+                    off = GetNextOffset(off);
+                    if (off == end && buf[off] != '\r') {
+                        bLineEnd = TRUE;
+                    }
+                    else {
+                        bLineEnd = FALSE;
+                    }
+                }
+            }
+
+            if (bShift) {
+                ExpandSelection(toff, off);
+            }
+            else {
+                if (SelectStart != SelectEnd) {
+                    off = max(SelectStart, SelectEnd);
                 }
             }
             SetCaret();
+        }
+
+        if (!bShift) {
+            ClearSelection();
         }
         break;
 
@@ -834,16 +939,44 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     case VK_HOME:
         GetRowAndColumn(off, row, column);
-        off = GetOffset(row, 0);
+        toff = off;
+        if (bCtrl) {
+            off = 0;
+        }
+        else {
+            off = GetOffset(row, 0);
+        }
+
         bLineEnd = FALSE;
+        
+        if (bShift) {
+            ExpandSelection(toff, off);
+        }
+        else {
+            ClearSelection();
+        }
         SetCaret();
         break;
 
     case VK_END:
         GetRowAndColumn(off, row, column);
-        off = GetOffset(row, 2147483647);
+        toff = off;
+        if (bCtrl) {
+            off = wcslen(buf);
+        }
+        else {
+            off = GetOffset(row, 2147483647);
+        }
+
         if (buf[off] != '\r' && buf[off] != 0) {
             bLineEnd = TRUE;
+        }
+
+        if (bShift) {
+            ExpandSelection(toff, off);
+        }
+        else {
+            ClearSelection();
         }
         SetCaret();
         break;
@@ -858,7 +991,14 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         InvalidateRect(hWnd, NULL, TRUE);
         SetScrollPos(hWnd, SB_VERT, yPos, TRUE);
 
+        toff = off;
         off = GetDocsXPosOnLine(row, PrevX);
+        if (bShift) {
+            ExpandSelection(toff, off);
+        }
+        else {
+            ClearSelection();
+        }
         SetCaret(FALSE);
         break;
 
@@ -873,7 +1013,14 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         InvalidateRect(hWnd, NULL, TRUE);
         SetScrollPos(hWnd, SB_VERT, yPos, TRUE);
         
+        toff = off;
         off = GetDocsXPosOnLine(row, PrevX);
+        if (bShift) {
+            ExpandSelection(toff, off);
+        }
+        else {
+            ClearSelection();
+        }
         SetCaret(FALSE);
         break;
     }
@@ -1737,4 +1884,23 @@ int GetNextWord(int idx) {
     }
 
     return idx;
+}
+
+void ClearSelection() {
+    if (SelectStart != SelectEnd) {
+        SelectStart = SelectEnd = 0;
+        InvalidateRect(hWndMain, NULL, TRUE);
+    }
+}
+
+void ExpandSelection(int start, int end) {
+    if (SelectStart == SelectEnd) {
+        SelectStart = start;
+        SelectEnd = end;
+    }
+    else {
+        SelectEnd = end;
+    }
+
+    InvalidateRect(hWndMain, NULL, TRUE);
 }
