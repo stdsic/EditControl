@@ -197,10 +197,10 @@ struct WrapOptions {
     BOOL KeepPunctWithWord;
     BOOL kjcCharWrap;
 } g_Option = {
-  TRUE,
-  FALSE,
-  TRUE,
-  FALSE,
+    TRUE,
+    FALSE,
+    TRUE,
+    FALSE,
 };
 
 enum WBPType { WBP_WORD, WBP_PUNCT };
@@ -495,11 +495,19 @@ void ExpandSelection(int start, int end);
 // 그 외에는 딱히 어려울 것이 없으므로 변경된 코드를 보고 분석해보자.
 // WM_KEYDOWN 메세지의 처리 로직이 대부분 변경되었으므로 반드시 한 번 살펴봐야 한다.
 
+// 이제 선택 영역을 삭제하는 동작을 추가해보자.
+// 선택은 완벽하게 구현해두었으므로 삭제하는 로직만 수정하면 된다.
+// BS, DEL, 문자 입력, 세 가지 경우를 고려하면 되는데 이 동작을 돕는 도우미 함수를 만들어보자.
+BOOL DeleteSelection();
+
+// 실행해보면 DEL, 문자 입력에 대해서는 잘 동작하지만 BS 키에 대한 동작은 다소 부족하다.
+// 이와 관련된 기능은 내일 추가하기로 한다.
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
 
     ClearSelection();
-    
+
     off = GetOffsetFromPoint(x + xPos, y + yPos);
     SelectStart = SelectEnd = off;
     SetCapture(hWnd);
@@ -605,28 +613,28 @@ LRESULT OnHScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int increase = 0;
 
     switch (LOWORD(wParam)) {
-    case SB_LINELEFT:
-        increase = -FontHeight;
-        break;
+        case SB_LINELEFT:
+            increase = -FontHeight;
+            break;
 
-    case SB_LINERIGHT:
-        increase = FontHeight;
-        break;
+        case SB_LINERIGHT:
+            increase = FontHeight;
+            break;
 
-    case SB_PAGELEFT:
-        increase = -(g_crt.right - g_crt.left);
-        break;
+        case SB_PAGELEFT:
+            increase = -(g_crt.right - g_crt.left);
+            break;
 
-    case SB_PAGERIGHT:
-        increase = g_crt.right - g_crt.left;
-        break;
+        case SB_PAGERIGHT:
+            increase = g_crt.right - g_crt.left;
+            break;
 
-    case SB_THUMBTRACK:
-        si.cbSize = sizeof(SCROLLINFO);
-        si.fMask = SIF_TRACKPOS;
-        GetScrollInfo(hWnd, SB_HORZ, &si);
-        increase = si.nTrackPos - xPos;
-        break;
+        case SB_THUMBTRACK:
+            si.cbSize = sizeof(SCROLLINFO);
+            si.fMask = SIF_TRACKPOS;
+            GetScrollInfo(hWnd, SB_HORZ, &si);
+            increase = si.nTrackPos - xPos;
+            break;
     }
 
     increase = max(-xPos, min(increase, xMax - xPos));
@@ -641,37 +649,37 @@ LRESULT OnVScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int increase;
     int per;
     SCROLLINFO si;
-    
+
     per = (g_crt.bottom / LineHeight) * LineHeight;
     increase = 0;
 
     switch (LOWORD(wParam)) {
-    case SB_LINEUP:
-        increase = -LineHeight;
-        break;
+        case SB_LINEUP:
+            increase = -LineHeight;
+            break;
 
-    case SB_LINEDOWN:
-        increase = LineHeight;
-        break;
+        case SB_LINEDOWN:
+            increase = LineHeight;
+            break;
 
-    case SB_PAGEUP:
-        increase = -per;
-        break;
+        case SB_PAGEUP:
+            increase = -per;
+            break;
 
-    case SB_PAGEDOWN:
-        increase = per;
-        break;
+        case SB_PAGEDOWN:
+            increase = per;
+            break;
 
-        // SB_THUMBTRACK 메세지는 현재 위치를 임의의 위치로 옮겼을 때 발생하며 따라서 줄의 경계 따위는 완전히 무시한다.
-    case SB_THUMBTRACK:
-        si.cbSize = sizeof(SCROLLINFO);
-        si.fMask = SIF_TRACKPOS;
-        GetScrollInfo(hWnd, SB_VERT, &si);
-        increase = si.nTrackPos - yPos;
-        break;
+            // SB_THUMBTRACK 메세지는 현재 위치를 임의의 위치로 옮겼을 때 발생하며 따라서 줄의 경계 따위는 완전히 무시한다.
+        case SB_THUMBTRACK:
+            si.cbSize = sizeof(SCROLLINFO);
+            si.fMask = SIF_TRACKPOS;
+            GetScrollInfo(hWnd, SB_VERT, &si);
+            increase = si.nTrackPos - yPos;
+            break;
 
-    default:
-        break;
+        default:
+            break;
     }
 
     // 0보다 작지 않게 고정
@@ -692,11 +700,11 @@ LRESULT OnTimer(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     POINT Mouse;
 
     switch (wParam) {
-    case 1:
-        GetCursorPos(&Mouse);
-        ScreenToClient(hWnd, &Mouse);
-        SendMessage(hWnd, WM_MOUSEMOVE, 0, MAKELPARAM(Mouse.x, Mouse.y));
-        break;
+        case 1:
+            GetCursorPos(&Mouse);
+            ScreenToClient(hWnd, &Mouse);
+            SendMessage(hWnd, WM_MOUSEMOVE, 0, MAKELPARAM(Mouse.x, Mouse.y));
+            break;
     }
 
     return 0;
@@ -717,312 +725,317 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int row = 0, column = 0;
     int start = 0, end = 0, toff = 0;
     int oldRow = 0;
-    
+
     BOOL bShift, bCtrl;
     bShift = ((GetKeyState(VK_SHIFT) & 0x8000) != 0);
     bCtrl = ((GetKeyState(VK_CONTROL) & 0x8000) != 0);
 
     switch (wParam) {
-    case VK_UP:
-        if (bCtrl && bShift) { break; }
-        GetRowAndColumn(off, row, column);
-        if (row > 0) {
-            if (bCtrl) {
-                SendMessage(hWnd, WM_VSCROLL, SB_LINEUP, 0);
-                if (row != (g_crt.bottom + yPos) / LineHeight) { break; }
-            }
-            toff = off;
-            row--;
-            off = GetDocsXPosOnLine(row, PrevX);
-            if (bShift) {
-                ExpandSelection(toff, off);
-            }
-            else {
-                if (SelectStart != SelectEnd) {
-                    off = min(SelectStart, SelectEnd);
-                    ClearSelection();
-                    SetCaret();         // PrevX 갱신
-                    SendMessage(hWnd, WM_KEYDOWN, VK_UP, 0);
-                }
-            }
-            SetCaret(FALSE);
-        }
-
-        if (!bShift) {
-            ClearSelection();
-        }
-        break;
-
-    case VK_DOWN:
-        if (bCtrl && bShift) { break; }
-
-        GetRowAndColumn(off, row, column);
-        if (bCtrl) {
-            SendMessage(hWnd, WM_VSCROLL, SB_LINEDOWN, 0);
-            if (row != yPos / LineHeight - 1) { break; }
-        }
-
-        if (row < lineCount - 1) {
-            toff = off;
-            row++;
-            off = GetDocsXPosOnLine(row, PrevX);
-            if (bShift) {
-                ExpandSelection(toff, off);
-            }
-            else {
-                if (SelectStart != SelectEnd) {
-                    off = max(SelectStart, SelectEnd);
-                    ClearSelection();
-                    SetCaret();         // PrevX 갱신
-                    SendMessage(hWnd, WM_KEYDOWN, VK_DOWN, 0);
-                }
-            }
-            SetCaret(FALSE);
-        }
-
-        if (!bShift) {
-            ClearSelection();
-        }
-        break;
-
-
-    // VK_LEFT와 VK_RIGHT 코드를 수정했다. 코드가 구조적으로 작성되어 자세히 살펴보지 않으면 흐름을 파악하기 어렵다.
-    // 기존 코드는 GetNextOffset이나 GetPrevOffset으로 오프셋 값을 조정한 후 SetCaret을 호출하여 캐럿의 위치를 이동시키는 단순한 구조였다.
-    // SetCaret은 내부적으로 GetCoordinate를 호출하는데 이 함수가 화면상의 좌표를 계산해서 반환하면 SetCaret은 캐럿을 옮기는 동작만 한다.
-    // 여기서 중요한건 SetCaret 함수가 언제나 현재 위치, 즉 전역 변수 off를 참조한다는 것인데
-    // 오프셋 값을 계산하고 캐럿의 위치를 옮기는 이러한 구조에선 현재 오프셋 값을 기준으로 분기문을 만드는 것이 좋다.
-    // SetCaret은 항상 마지막에 호출되어야 하므로 순서가 정해져 있다.
-    // 실행 흐름을 잘 따라가다 보면 왜 이런 구조로 코드를 작성했는지 파악할 수 있을 것이다.
-    case VK_LEFT:
-        if (off > 0) {
+        case VK_UP:
+            if (bCtrl && bShift) { break; }
             GetRowAndColumn(off, row, column);
-            start = lineInfo[row].start;
-            end = lineInfo[row].end;
-            
-            toff = off;
-            if (bCtrl) {
-                off = GetPrevWord(off);
+            if (row > 0) {
+                if (bCtrl) {
+                    SendMessage(hWnd, WM_VSCROLL, SB_LINEUP, 0);
+                    if (row != (g_crt.bottom + yPos) / LineHeight) { break; }
+                }
+                toff = off;
+                row--;
+                off = GetDocsXPosOnLine(row, PrevX);
+                if (bShift) {
+                    ExpandSelection(toff, off);
+                }
+                else {
+                    if (SelectStart != SelectEnd) {
+                        off = min(SelectStart, SelectEnd);
+                        ClearSelection();
+                        SetCaret();         // PrevX 갱신
+                        SendMessage(hWnd, WM_KEYDOWN, VK_UP, 0);
+                    }
+                }
+                SetCaret(FALSE);
             }
-            else {
-                if (off == start) {
-                    if (buf[GetPrevOffset(off)] == '\r') {
+
+            if (!bShift) {
+                ClearSelection();
+            }
+            break;
+
+        case VK_DOWN:
+            if (bCtrl && bShift) { break; }
+
+            GetRowAndColumn(off, row, column);
+            if (bCtrl) {
+                SendMessage(hWnd, WM_VSCROLL, SB_LINEDOWN, 0);
+                if (row != yPos / LineHeight - 1) { break; }
+            }
+
+            if (row < lineCount - 1) {
+                toff = off;
+                row++;
+                off = GetDocsXPosOnLine(row, PrevX);
+                if (bShift) {
+                    ExpandSelection(toff, off);
+                }
+                else {
+                    if (SelectStart != SelectEnd) {
+                        off = max(SelectStart, SelectEnd);
+                        ClearSelection();
+                        SetCaret();         // PrevX 갱신
+                        SendMessage(hWnd, WM_KEYDOWN, VK_DOWN, 0);
+                    }
+                }
+                SetCaret(FALSE);
+            }
+
+            if (!bShift) {
+                ClearSelection();
+            }
+            break;
+
+
+            // VK_LEFT와 VK_RIGHT 코드를 수정했다. 코드가 구조적으로 작성되어 자세히 살펴보지 않으면 흐름을 파악하기 어렵다.
+            // 기존 코드는 GetNextOffset이나 GetPrevOffset으로 오프셋 값을 조정한 후 SetCaret을 호출하여 캐럿의 위치를 이동시키는 단순한 구조였다.
+            // SetCaret은 내부적으로 GetCoordinate를 호출하는데 이 함수가 화면상의 좌표를 계산해서 반환하면 SetCaret은 캐럿을 옮기는 동작만 한다.
+            // 여기서 중요한건 SetCaret 함수가 언제나 현재 위치, 즉 전역 변수 off를 참조한다는 것인데
+            // 오프셋 값을 계산하고 캐럿의 위치를 옮기는 이러한 구조에선 현재 오프셋 값을 기준으로 분기문을 만드는 것이 좋다.
+            // SetCaret은 항상 마지막에 호출되어야 하므로 순서가 정해져 있다.
+            // 실행 흐름을 잘 따라가다 보면 왜 이런 구조로 코드를 작성했는지 파악할 수 있을 것이다.
+        case VK_LEFT:
+            if (off > 0) {
+                GetRowAndColumn(off, row, column);
+                start = lineInfo[row].start;
+                end = lineInfo[row].end;
+
+                toff = off;
+                if (bCtrl) {
+                    off = GetPrevWord(off);
+                }
+                else {
+                    if (off == start) {
+                        if (buf[GetPrevOffset(off)] == '\r') {
+                            off = GetPrevOffset(off);
+                            bLineEnd = FALSE;
+                        }
+                        else {
+                            bLineEnd = TRUE;
+                        }
+                    }
+                    else {
                         off = GetPrevOffset(off);
                         bLineEnd = FALSE;
                     }
+                }
+
+                if (bShift) {
+                    ExpandSelection(toff, off);
+                }
+                else {
+                    if (SelectStart != SelectEnd) {
+                        off = min(SelectStart, SelectEnd);
+                    }
+                }
+                SetCaret();
+            }
+
+            if (!bShift) {
+                ClearSelection();
+            }
+            break;
+
+        case VK_RIGHT:
+            if (off < wcslen(buf)) {
+                GetRowAndColumn(off, row, column);
+                start = lineInfo[row].start;
+                end = lineInfo[row].end;
+
+                toff = off;
+                if (bCtrl) {
+                    off = GetNextWord(off);
+                }
+                else {
+                    if (off == end) {
+                        if (buf[end] == '\r') {
+                            off = GetNextOffset(off);
+                        }
+                        bLineEnd = FALSE;
+                    }
                     else {
+                        off = GetNextOffset(off);
+                        if (off == end && buf[off] != '\r') {
+                            bLineEnd = TRUE;
+                        }
+                        else {
+                            bLineEnd = FALSE;
+                        }
+                    }
+                }
+
+                if (bShift) {
+                    ExpandSelection(toff, off);
+                }
+                else {
+                    if (SelectStart != SelectEnd) {
+                        off = max(SelectStart, SelectEnd);
+                    }
+                }
+                SetCaret();
+            }
+
+            if (!bShift) {
+                ClearSelection();
+            }
+            break;
+
+        case VK_DELETE:
+            if (DeleteSelection() == FALSE) {
+                if (IsCRLF(off)) {
+                    Delete(off, 2);
+                }
+                else {
+                    Delete(off, 1);
+                }
+            }
+            InvalidateRect(hWnd, NULL, TRUE);
+            SetCaret();
+            break;
+
+        case VK_BACK:
+            if (off == 0) { break; }
+            if (DeleteSelection() == FALSE) {
+                if (g_Option.wordWrap) {
+                    off = GetPrevOffset(off);
+                    GetRowAndColumn(off, row, column);
+
+                    start = lineInfo[row].start;
+                    end = lineInfo[row].end;
+
+                    if (column > 0 && off == end && buf[off] != '\r') {
+                        bLineEnd = FALSE;
+                        Delete(off, 1);
+                    }
+                    else if (column > 0 && off == end - 1) {
                         bLineEnd = TRUE;
+                        if (IsCRLF(off)) {
+                            Delete(off, 2);
+                        }
+                        else {
+                            Delete(off, 1);
+                        }
+                    }
+                    else {
+                        // 여기서는 bLineEnd를 조정할 필요가 없다.
+                        if (IsCRLF(off)) {
+                            Delete(off, 2);
+                        }
+                        else {
+                            Delete(off, 1);
+
+                        }
                     }
                 }
                 else {
                     off = GetPrevOffset(off);
-                    bLineEnd = FALSE;
-                }
-            }
-            
-            if (bShift) {
-                ExpandSelection(toff, off);
-            }
-            else {
-                if (SelectStart != SelectEnd) {
-                    off = min(SelectStart, SelectEnd);
-                }
-            }
-            SetCaret();
-        }
-
-        if (!bShift) {
-            ClearSelection();
-        }
-        break;
-
-    case VK_RIGHT:
-        if (off < wcslen(buf)) {
-            GetRowAndColumn(off, row, column);
-            start = lineInfo[row].start;
-            end = lineInfo[row].end;
-
-            toff = off;
-            if (bCtrl) {
-                off = GetNextWord(off);
-            }
-            else {
-                if (off == end) {
-                    if (buf[end] == '\r') {
-                        off = GetNextOffset(off);
-                    }
-                    bLineEnd = FALSE;
-                }
-                else {
-                    off = GetNextOffset(off);
-                    if (off == end && buf[off] != '\r') {
-                        bLineEnd = TRUE;
+                    if (IsCRLF(off)) {
+                        Delete(off, 2);
                     }
                     else {
-                        bLineEnd = FALSE;
+                        Delete(off, 1);
+
                     }
                 }
+            }
+
+            InvalidateRect(hWnd, NULL, TRUE);
+            SetCaret();
+            break;
+
+        case VK_HOME:
+            GetRowAndColumn(off, row, column);
+            toff = off;
+            if (bCtrl) {
+                off = 0;
+            }
+            else {
+                off = GetOffset(row, 0);
+            }
+
+            bLineEnd = FALSE;
+
+            if (bShift) {
+                ExpandSelection(toff, off);
+            }
+            else {
+                ClearSelection();
+            }
+            SetCaret();
+            break;
+
+        case VK_END:
+            GetRowAndColumn(off, row, column);
+            toff = off;
+            if (bCtrl) {
+                off = wcslen(buf);
+            }
+            else {
+                off = GetOffset(row, 2147483647);
+            }
+
+            if (buf[off] != '\r' && buf[off] != 0) {
+                bLineEnd = TRUE;
             }
 
             if (bShift) {
                 ExpandSelection(toff, off);
             }
             else {
-                if (SelectStart != SelectEnd) {
-                    off = max(SelectStart, SelectEnd);
-                }
+                ClearSelection();
             }
             SetCaret();
-        }
+            break;
 
-        if (!bShift) {
-            ClearSelection();
-        }
-        break;
-
-    case VK_DELETE:
-        if (IsCRLF(off)) {
-            Delete(off, 2);
-        }
-        else {
-            Delete(off, 1);
-        }
-        InvalidateRect(hWnd, NULL, TRUE);
-        break;
-
-    case VK_BACK:
-        if (off == 0) { break; }
-        if (g_Option.wordWrap) {
-            off = GetPrevOffset(off);
+        case VK_PRIOR:
             GetRowAndColumn(off, row, column);
+            oldRow = row;
+            row -= g_crt.bottom / LineHeight;
+            row = max(row, 0);
+            yPos = yPos - (oldRow - row) * LineHeight;
+            yPos = max(yPos, 0);
+            InvalidateRect(hWnd, NULL, TRUE);
+            SetScrollPos(hWnd, SB_VERT, yPos, TRUE);
 
-            start = lineInfo[row].start;
-            end = lineInfo[row].end;
-
-            if (column > 0 && off == end && buf[off] != '\r') {
-                bLineEnd = FALSE;
-                Delete(off, 1);
-            }
-            else if (column > 0 && off == end - 1) {
-                bLineEnd = TRUE;
-                if (IsCRLF(off)) {
-                    Delete(off, 2);
-                }
-                else {
-                    Delete(off, 1);
-                }
+            toff = off;
+            off = GetDocsXPosOnLine(row, PrevX);
+            if (bShift) {
+                ExpandSelection(toff, off);
             }
             else {
-                // 여기서는 bLineEnd를 조정할 필요가 없다.
-                if (IsCRLF(off)) {
-                    Delete(off, 2);
-                }
-                else {
-                    Delete(off, 1);
-
-                }
+                ClearSelection();
             }
-        }
-        else {
-            off = GetPrevOffset(off);
-            if (IsCRLF(off)) {
-                Delete(off, 2);
+            SetCaret(FALSE);
+            break;
+
+        case VK_NEXT:
+            GetRowAndColumn(off, row, column);
+            oldRow = row;
+            row += g_crt.bottom / LineHeight;
+            row = min(row, lineCount - 1);
+            yPos = yPos + (row - oldRow) * LineHeight;
+            yPos = max(0, min(yPos, yMax - (g_crt.bottom / LineHeight) * LineHeight));
+            // row = max(0, min(yPos, yMax - (g_crt.bottom / LineHeight) * LineHeight));
+            InvalidateRect(hWnd, NULL, TRUE);
+            SetScrollPos(hWnd, SB_VERT, yPos, TRUE);
+
+            toff = off;
+            off = GetDocsXPosOnLine(row, PrevX);
+            if (bShift) {
+                ExpandSelection(toff, off);
             }
             else {
-                Delete(off, 1);
-
+                ClearSelection();
             }
-        }
-       
-        InvalidateRect(hWnd, NULL, TRUE);
-        SetCaret();
-        break;
-
-    case VK_HOME:
-        GetRowAndColumn(off, row, column);
-        toff = off;
-        if (bCtrl) {
-            off = 0;
-        }
-        else {
-            off = GetOffset(row, 0);
-        }
-
-        bLineEnd = FALSE;
-        
-        if (bShift) {
-            ExpandSelection(toff, off);
-        }
-        else {
-            ClearSelection();
-        }
-        SetCaret();
-        break;
-
-    case VK_END:
-        GetRowAndColumn(off, row, column);
-        toff = off;
-        if (bCtrl) {
-            off = wcslen(buf);
-        }
-        else {
-            off = GetOffset(row, 2147483647);
-        }
-
-        if (buf[off] != '\r' && buf[off] != 0) {
-            bLineEnd = TRUE;
-        }
-
-        if (bShift) {
-            ExpandSelection(toff, off);
-        }
-        else {
-            ClearSelection();
-        }
-        SetCaret();
-        break;
-
-    case VK_PRIOR:
-        GetRowAndColumn(off, row, column);
-        oldRow = row;
-        row -= g_crt.bottom / LineHeight;
-        row = max(row, 0);
-        yPos = yPos - (oldRow - row) * LineHeight;
-        yPos = max(yPos, 0);
-        InvalidateRect(hWnd, NULL, TRUE);
-        SetScrollPos(hWnd, SB_VERT, yPos, TRUE);
-
-        toff = off;
-        off = GetDocsXPosOnLine(row, PrevX);
-        if (bShift) {
-            ExpandSelection(toff, off);
-        }
-        else {
-            ClearSelection();
-        }
-        SetCaret(FALSE);
-        break;
-
-    case VK_NEXT:
-        GetRowAndColumn(off, row, column);
-        oldRow = row;
-        row += g_crt.bottom / LineHeight;
-        row = min(row, lineCount - 1);
-        yPos = yPos + (row - oldRow) * LineHeight;
-        yPos = max(0, min(yPos, yMax - (g_crt.bottom / LineHeight) * LineHeight));
-        // row = max(0, min(yPos, yMax - (g_crt.bottom / LineHeight) * LineHeight));
-        InvalidateRect(hWnd, NULL, TRUE);
-        SetScrollPos(hWnd, SB_VERT, yPos, TRUE);
-        
-        toff = off;
-        off = GetDocsXPosOnLine(row, PrevX);
-        if (bShift) {
-            ExpandSelection(toff, off);
-        }
-        else {
-            ClearSelection();
-        }
-        SetCaret(FALSE);
-        break;
+            SetCaret(FALSE);
+            break;
     }
 
     WCHAR title[512];
@@ -1062,6 +1075,7 @@ LRESULT OnChar(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         Abuf[1] = 0;
     }
 
+    DeleteSelection();
     for (int i = 0; i < LOWORD(lParam); i++) {
         // 문자 입력 코드
         Insert(off, Abuf);
@@ -1077,7 +1091,7 @@ LRESULT OnChar(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 LRESULT OnImeChar(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     WCHAR Wbuf[0x10];
     bAlphaNum = FALSE;
-    
+
     Wbuf[0] = wParam;
     Wbuf[1] = 0;
 
@@ -1099,6 +1113,7 @@ LRESULT OnImeComposition(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     HIMC hImc = NULL;
     WCHAR* Cbuf = NULL;
 
+    DeleteSelection();
     if (lParam & GCS_COMPSTR) {
         hImc = ImmGetContext(hWnd);
         DWORD dwConversion, dwSentence;
@@ -1153,7 +1168,7 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     SelectStart = SelectEnd = 0;
     bCapture = FALSE;
     HideType = 1;
-    
+
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     memset(buf, 0, sizeof(WCHAR) * bufLength);
     wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
@@ -1181,7 +1196,7 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     lineInfoSize = 0x1000;
     lineInfo = (LineInfo*)malloc(sizeof(LineInfo) * lineInfoSize);
     memset(lineInfo, 0, sizeof(lineInfo) * lineInfoSize);
-    
+
     RebuildLineInfo();
     UpdateScrollInfo();
     return 0;
@@ -1194,7 +1209,7 @@ LRESULT OnDestroy(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 
-void SetCaret(BOOL bUpdatePrevX /*= TRUE*/, BOOL bScrollToCaret /* = TRUE*/) {
+void SetCaret(BOOL bUpdatePrevX, BOOL bScrollToCaret) {
     SIZE sz;
     int toff, x, y;
     int caretWidth;
@@ -1206,7 +1221,7 @@ void SetCaret(BOOL bUpdatePrevX /*= TRUE*/, BOOL bScrollToCaret /* = TRUE*/) {
     ShowCaret(hWndMain);
 
     GetCoordinate(toff, x, y);
-    
+
     // 스크롤바를 지원하면서부터 캐럿이 화면을 벗어났을 때 스크롤 되게끔 만들어야 한다.
     BOOL bScroll = FALSE;
     if (bScrollToCaret) {
@@ -1236,7 +1251,7 @@ void SetCaret(BOOL bUpdatePrevX /*= TRUE*/, BOOL bScrollToCaret /* = TRUE*/) {
     }
 
     SetCaretPos(x - xPos, y - yPos);
-    
+
     if (bUpdatePrevX != FALSE) { 
         PrevX = x;
     }
@@ -1264,7 +1279,7 @@ int GetCharWidth(WCHAR* src, int length) {
     int width = 0;
     WCHAR ch = 0;
     for (int i = 0; i < length; i++) {
-      ch = (int)(*(src + i));
+        ch = (int)(*(src + i));
         if (ch < 128) {
             if (ch == '\t') {
                 width = (width / TabSize + 1) * TabSize;
@@ -1585,18 +1600,18 @@ int WordBreakProc(int pos, int start, WBPType type) {
     CustomCharset Previous = GetCustomCharset(ptr[back]);
 
     switch (type) {
-    case WBP_WORD:
-        // FALLBACK: 문자셋이 서로 일치하지 않는 지점까지 좌측으로 이동
-        while (back > start && GetCustomCharset(ptr[back - 1]) == Previous) { back--; }
-        break;
+        case WBP_WORD:
+            // FALLBACK: 문자셋이 서로 일치하지 않는 지점까지 좌측으로 이동
+            while (back > start && GetCustomCharset(ptr[back - 1]) == Previous) { back--; }
+            break;
 
-    case WBP_PUNCT:
-        // 구두점일 때만 단어 단위로 정렬
-        if (Previous != CC_PUNCT && (Previous == CC_KJC || Previous == CC_ALNUM)) {
-            CustomCharset WordType = Previous;
-            while (back > start && (GetCustomCharset(ptr[back - 1]) == WordType)) { back--; }
-        }
-        break;
+        case WBP_PUNCT:
+            // 구두점일 때만 단어 단위로 정렬
+            if (Previous != CC_PUNCT && (Previous == CC_KJC || Previous == CC_ALNUM)) {
+                CustomCharset WordType = Previous;
+                while (back > start && (GetCustomCharset(ptr[back - 1]) == WordType)) { back--; }
+            }
+            break;
     }
 
     return back;
@@ -1639,7 +1654,7 @@ int GetDocsXPosOnLine(int row, int dest) {
 
         if (Width >= dest) { break; }
     }
-    
+
     int ret = ptr - buf;
     if (ret == end && buf[ret] != '\r' && buf[ret] != 0) {
         bLineEnd = TRUE;
@@ -1712,7 +1727,7 @@ int DrawLine(HDC hdc, int line) {
 
     BOOL bInSelect;
     COLORREF fg, bg;
-    
+
     // 앞 뒤를 알 수 없으므로 정규화
     int SelectFirst = min(SelectStart, SelectEnd), SelectSecond = max(SelectStart, SelectEnd);
 
@@ -1739,7 +1754,7 @@ int DrawLine(HDC hdc, int line) {
                 }
                 break;
             }
-            
+
             if (SelectStart != SelectEnd && length != 0 && idx + length == SelectFirst) {
                 bInSelect = FALSE;
                 break;
@@ -1903,4 +1918,19 @@ void ExpandSelection(int start, int end) {
     }
 
     InvalidateRect(hWndMain, NULL, TRUE);
+}
+
+BOOL DeleteSelection() {
+    int SelectFirst, SelectSecond;
+
+    if(SelectStart != SelectEnd) {
+        SelectFirst = min(SelectStart, SelectEnd);
+        SelectSecond = max(SelectStart, SelectEnd);
+        Delete(SelectFirst, SelectSecond - SelectFirst);
+        SelectStart = SelectEnd = 0;
+        off = SelectFirst;
+        return TRUE;
+    }
+
+    return FALSE;
 }
