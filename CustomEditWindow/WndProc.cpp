@@ -500,8 +500,25 @@ void ExpandSelection(int start, int end);
 // BS, DEL, 문자 입력, 세 가지 경우를 고려하면 되는데 이 동작을 돕는 도우미 함수를 만들어보자.
 BOOL DeleteSelection();
 
-// 실행해보면 DEL, 문자 입력에 대해서는 잘 동작하지만 BS 키에 대한 동작은 다소 부족하다.
-// 이와 관련된 기능은 내일 추가하기로 한다.
+// 실행해보면 DEL, 문자 입력에 대해서는 잘 동작하지만 BS 키에 대한 동작은 다소 이상하다.
+// if(off == 0) 분기문으로 인해 제대로 지워지지 않는데 이 분기문을 if(DeleteSelection() == FALSE) 분기문 내부로 옮기면 제대로 동작한다.
+
+// 이번엔 복사, 붙여넣기 등의 동작을 만들어보자.
+// 이러한 동작들은 메뉴로 지원할 수도 있으나 현재 만들고 있는 윈도우는 최종적으로 컨트롤이 되어야 한다.
+// 따라서, 메뉴를 가질 수가 없으며 컨텍스트 메뉴를 이용해야 한다.
+#define IDM_CUT         2001
+#define IDM_COPY        2002
+#define IDM_PASTE       2003
+#define IDM_SELECTALL   2004
+
+// WM_CONTEXTMENU 메세지를 보자.
+// 이 메세지는 시스템이 발생시키는 메세지인데 윈도우 내부에서 마우스 우클릭이 발생했을 때 전달된다.
+// 우클릭이 발생한 지점의 좌표 값이 lParam으로 전달되며, 이때 좌표 값은 화면(모니터) 영역을 기준으로 한다.
+// lParam으로 -1이 전달되는 경우가 있는데 이는 좌표 값이 아닌 특수값이며 Shift + F10이 입력되었을 때 발생한다.
+// 딱히 어려운 코드는 없으며 실행 중에 팝업 메뉴를 만드는 동작만 한다.
+// 팝업 메뉴는 만들었으므로 WM_COMMAND에서 해당 항목을 눌렀을 때의 처리를 하면 된다.
+// 이 코드 역시 딱히 어려운게 없으며 HGLOBAL이나 Clipboard에 대한 내용은 여기서 다루지 않기로 한다.
+// 여기까지 작성하고 프로그램을 실행해보면 복사 및 붙여넣기 등의 기능이 잘 동작하는 것을 볼 수 있다.
 
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
@@ -605,6 +622,32 @@ LRESULT OnSetCursor(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 LRESULT OnContextMenu(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    HMENU hPopupMenu;
+    POINT Mouse = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+
+    hPopupMenu = CreatePopupMenu();
+    AppendMenu(hPopupMenu, MF_STRING, IDM_CUT, L"잘라내기(&T)");
+    AppendMenu(hPopupMenu, MF_STRING, IDM_COPY, L"복사(&C)");
+    AppendMenu(hPopupMenu, MF_STRING, IDM_PASTE, L"붙여넣기(&P)");
+    AppendMenu(hPopupMenu, MF_STRING, IDM_SELECTALL, L"모두선택(&A)");
+
+    if (IsClipboardFormatAvailable(CF_TEXT) == FALSE) {
+        EnableMenuItem(hPopupMenu, IDM_PASTE, MF_BYCOMMAND | MF_GRAYED);
+    }
+
+    if (SelectStart == SelectEnd) {
+        EnableMenuItem(hPopupMenu, IDM_CUT, MF_BYCOMMAND | MF_GRAYED);
+        EnableMenuItem(hPopupMenu, IDM_COPY, MF_BYCOMMAND | MF_GRAYED);
+    }
+
+    // Shift + F10
+    if ((lParam == (LPARAM)-1)) {
+        GetCaretPos(&Mouse);
+        ClientToScreen(hWnd, &Mouse);
+    }
+
+    TrackPopupMenu(hPopupMenu, TPM_LEFTALIGN, Mouse.x, Mouse.y, 0, hWnd, NULL);
+    DestroyMenu(hPopupMenu);
 
     return 0;
 }
@@ -693,6 +736,59 @@ LRESULT OnVScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    HGLOBAL hMem;
+    WCHAR* ptr;
+    int SelectFirst, SelectSecond;
+
+    switch (LOWORD(wParam)) {
+    case IDM_CUT:
+        if (SelectStart != SelectEnd) {
+            SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_COPY, 0), 0);
+            DeleteSelection();
+            InvalidateRect(hWnd, NULL, TRUE);
+            SetCaret();
+        }
+        break;
+
+    case IDM_COPY:
+        if (SelectStart != SelectEnd) {
+            SelectFirst = min(SelectStart, SelectEnd);
+            SelectSecond = max(SelectStart, SelectEnd);
+            hMem = GlobalAlloc(GHND, sizeof(WCHAR) * (SelectSecond - SelectFirst + 1));
+            ptr = (WCHAR*)GlobalLock(hMem);
+            memcpy(ptr, buf + SelectFirst, sizeof(WCHAR) * (SelectSecond - SelectFirst));
+            GlobalUnlock(hMem);
+            if (OpenClipboard(hWnd)) {
+                EmptyClipboard();
+                SetClipboardData(CF_TEXT, hMem);
+                CloseClipboard();
+            }
+        }
+        break;
+
+    case IDM_PASTE:
+        if (IsClipboardFormatAvailable(CF_TEXT)) {
+            DeleteSelection();
+            OpenClipboard(hWnd);
+            hMem = GetClipboardData(CF_TEXT);
+            ptr = (WCHAR*)GlobalLock(hMem);
+            Insert(off, ptr);
+            GlobalUnlock(hMem);
+            CloseClipboard();
+            InvalidateRect(hWnd, NULL, TRUE);
+            off += wcslen(ptr);
+            SetCaret();
+        }
+        break;
+
+    case IDM_SELECTALL:
+        SelectStart = 0;
+        SelectEnd = wcslen(buf);
+        off = SelectEnd;
+        InvalidateRect(hWnd, NULL, TRUE);
+        SetCaret();
+        break;
+    }
 
     return 0;
 }
@@ -1305,7 +1401,7 @@ BOOL Insert(int idx, WCHAR* str) {
         if (buf == NULL) { return FALSE; }
     }
 
-    int move = docLength + idx + 1;
+    int move = docLength + idx + length;
     memmove(buf + idx + length, buf + idx, move * sizeof(WCHAR));
     memcpy(buf + idx, str, length * sizeof(WCHAR));
     docLength += length;
@@ -1526,6 +1622,7 @@ int FindWrapPoint(int start, int end) {
     if (start >= end) { return start; }
 
     WCHAR* ptr = buf;
+
     int left = start + 1, right = end, fit = left;
     int maxWidth = g_crt.right - g_crt.left - CARET_WIDTH;
 
