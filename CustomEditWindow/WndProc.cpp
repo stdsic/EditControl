@@ -901,8 +901,8 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             break;
 
         case VK_BACK:
-            if (off == 0) { break; }
             if (DeleteSelection() == FALSE) {
+                if (off == 0) { break; }
                 if (g_Option.wordWrap) {
                     off = GetPrevOffset(off);
                     GetRowAndColumn(off, row, column);
@@ -945,7 +945,6 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
                     }
                 }
             }
-
             InvalidateRect(hWnd, NULL, TRUE);
             SetCaret();
             break;
