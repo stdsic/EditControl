@@ -520,6 +520,11 @@ BOOL DeleteSelection();
 // 이 코드 역시 딱히 어려운게 없으며 HGLOBAL이나 Clipboard에 대한 내용은 여기서 다루지 않기로 한다.
 // 여기까지 작성하고 프로그램을 실행해보면 복사 및 붙여넣기 등의 기능이 잘 동작하는 것을 볼 수 있다.
 
+// 잠깐 테스트를 하는동안 버그를 발견했다.
+// off == 0인 상태에서 엔터 키를 입력해보면 문자가 제대로 그려지지 않는다.
+// 이는 아주 간단히 고칠 수 있는데 DrawLine 함수의 선두에 있는 if(start == 0 && end == 0) 분기문에 한 가지 조건만 추가하면 된다.
+// 분기문을 if(start == 0 && end == 0 && line > 0)로 변경하면 문자가 제대로 그려질 것이다.
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
 
@@ -1816,7 +1821,7 @@ int DrawLine(HDC hdc, int line) {
 
     start = lineInfo[line].start;
     end = lineInfo[line].end;
-    if (start == 0 && end == 0) { return 0; }
+    if (start == 0 && end == 0 && line > 0) { return 0; }
 
     x = 0 - xPos;
     idx = start;
