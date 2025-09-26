@@ -1,4 +1,4 @@
-﻿#include "resource.h"
+﻿#include "pch.h"
 #define CLASS_NAME L"MakeApiEdit"
 
 LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam);
@@ -41,7 +41,8 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
 
     RegisterClass(&wc);
 
-    HWND hWnd = CreateWindow(
+    HWND hWnd = CreateWindowEx(
+        WS_EX_LAYERED,
         CLASS_NAME,
         CLASS_NAME,
         WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL,
@@ -51,6 +52,7 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
         hInst,
         NULL
     );
+    SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
 
     ShowWindow(hWnd, nCmdShow);
 

@@ -1,4 +1,4 @@
-#include "resource.h"
+#include "pch.h"
 #define CARET_WIDTH 2
 
 #define min(a,b) (((a) < (b)) ? (a) : (b))
@@ -535,6 +535,32 @@ BOOL DeleteSelection();
 // 이 코드는 간단하게 구현할 수 있으나 이는 다음에 추가하기로 하자.
 // 여기까지 작성하고 실행해보면 적당히 쓰기 좋은 에디트 윈도우가 된 것을 알 수 있다.
 
+// 이제 최적화 작업이 남았는데 그리는 동작부터 시작해보자.
+// 단순히 for문을 돌면서 줄에 있는 문자열을 모두 그리고 있다.
+// 사용자가 보고있는 화면을 벗어나는 범위는 사실상 그릴 필요가 없기 때문에 크기를 적당히 잘라서 출력하도록 만드는 것이 좋다.
+// 또, 반투명 상태를 지원할 생각이므로 글자를 또렷하게 표현할 수 있어야 하는데, 기본 GDI만으로는 이런 동작이 불가능하다.
+// DirectX나 GDI+ 같은 고급 그래픽 라이브러리를 활용해야 한다.
+// 현재 구조를 유지하기 위해서는 HDC 타입과 호환 가능해야 하므로 GDI+를 사용하기로 한다.
+// 미리 컴파일된 헤더(pch.h)를 만들고 프로젝트 설정을 변경했다.
+// MSVC의 IntelliSense의 안정화를 위해 pch를 사용하는 것이 좋은데,
+// pch가 없을 경우 버전이 꼬이는 현상이 발생하면서 타입이 꼬이거나 오래된 구문에 대한 오류가 발생하기도 한다.
+// 여러모로 정신 건강에 이롭기 때문에 MSVC 사용할 생각이라면 pch를 설정하는 것이 좋다.
+
+// 일단 설정은 마쳤고, 그리기 로직을 먼저 수정한 다음에 GDI+를 이용하기로 한다.
+// 사용자가 보고 있는 작업 영역을 제외한 지점을 잘라내는 코드를 추가해보자.
+// 간단한 산술로 작업 영역에 포함되는 줄 번호를 가져온다.
+// 화면 상단의 시작 줄과 하단의 끝 줄 번호를 가져와 제어 변수에 대입했다.
+// 이렇게하면 알아서 계산된 영역의 줄만 그리게 된다.
+
+// 다음은 사이키 마냥 깜빡거리는 화면 갱신 동작을 완화해보자.
+// 더블 버퍼링이라는 기법이 주로 사용되는데 줄 단위 더블 버퍼링을 적용할 예정이다.
+// GDI+를 이용할 생각이므로 구문이 섞여 다소 지저분해 보일 수 있다.
+// 일단 임시 코드를 따로 작성하고 완성되면 본 프로젝트에 적용하기로 한다.
+
+ULONG_PTR g_Token;
+void  InitializeGDIplus();
+void ShutdownGDIPlus();
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
 
@@ -822,12 +848,14 @@ LRESULT OnTimer(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 }
 LRESULT OnSize(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     if (wParam != SIZE_MINIMIZED) {
+        GetClientRect(hWnd, &g_crt);
+        if (g_Option.wordWrap || g_Option.KeepPunctWithWord) {
+            RebuildLineInfo();
+        }
+        UpdateScrollInfo();
         if (GetFocus() == hWnd) {
             SetCaret();
         }
-        GetClientRect(hWnd, &g_crt);
-        RebuildLineInfo();
-        UpdateScrollInfo();
     }
     return 0;
 
@@ -1178,7 +1206,12 @@ LRESULT OnKeyUp(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
-    for (int i = 0; i < lineCount; i++) {
+
+    int Top, Bottom;
+    Top = yPos / LineHeight;
+    Bottom = Top + g_crt.bottom / LineHeight;
+
+    for (int i = Top; i <= Bottom; i++) {
         if (DrawLine(hdc, i) == 0) { break; }
     }
     EndPaint(hWnd, &ps);
@@ -1305,6 +1338,8 @@ LRESULT OnImeComposition(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    InitializeGDIplus();
+
     hWndMain = hWnd;
     bufLength = 0x1000;
     docLength = 0;
@@ -1352,6 +1387,7 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 LRESULT OnDestroy(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     if (buf) { free(buf); }
     if (lineInfo) { free(lineInfo); }
+    ShutdownGDIPlus();
     PostQuitMessage(0);
     return 0;
 }
@@ -2081,4 +2117,13 @@ BOOL DeleteSelection() {
     }
 
     return FALSE;
+}
+
+void  InitializeGDIplus() {
+    GdiplusStartupInput gdiplusStartupInput;
+    GdiplusStartup(&g_Token, &gdiplusStartupInput, NULL);
+}
+
+void ShutdownGDIPlus() {
+    GdiplusShutdown(g_Token);
 }
