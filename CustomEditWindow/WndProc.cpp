@@ -525,6 +525,16 @@ BOOL DeleteSelection();
 // 이는 아주 간단히 고칠 수 있는데 DrawLine 함수의 선두에 있는 if(start == 0 && end == 0) 분기문에 한 가지 조건만 추가하면 된다.
 // 분기문을 if(start == 0 && end == 0 && line > 0)로 변경하면 문자가 제대로 그려질 것이다.
 
+// 마지막으로 단축키를 지정해보자.
+// Ctrl + C는 WM_CHAR 메세지에서 받을 수 있다.
+// 이 조합키는 액셀러레이터 대신 쓸 수 있으므로 기억해두는 것이 좋다.
+// WM_CHAR 메세지 처리 로직을 보면 선두에 이러한 조합키들의 코드를 분기 처리하고 있다.
+// 그 다음은 Shift와 Ctrl입력 상태에서 KeyDown 메세지가 발생할 때의 로직을 추가해보자.
+// 복사 및 붙여넣기 등의 동작을 Shift + Del, Shift + Insert, Ctrl + Insert 등의 조합으로 정의했다.
+// Ctrl + Backspace가 가장 유용하게 쓰이는데 아직 추가하진 않았다.
+// 이 코드는 간단하게 구현할 수 있으나 이는 다음에 추가하기로 하자.
+// 여기까지 작성하고 실행해보면 적당히 쓰기 좋은 에디트 윈도우가 된 것을 알 수 있다.
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
 
@@ -989,6 +999,11 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             break;
 
         case VK_DELETE:
+            if (bShift) {
+                SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_CUT, 0), 0);
+                break;
+            }
+
             if (DeleteSelection() == FALSE) {
                 if (IsCRLF(off)) {
                     Delete(off, 2);
@@ -1002,6 +1017,8 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             break;
 
         case VK_BACK:
+            if ((off == 0 && SelectStart == SelectEnd) || (bShift && bCtrl)) { break; }
+
             if (DeleteSelection() == FALSE) {
                 if (off == 0) { break; }
                 if (g_Option.wordWrap) {
@@ -1048,6 +1065,15 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             }
             InvalidateRect(hWnd, NULL, TRUE);
             SetCaret();
+            break;
+
+        case VK_INSERT:
+            if (bShift) {
+                SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_PASTE, 0), 0);
+            }
+            else if(bCtrl) {
+                SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_COPY, 0), 0);
+            }
             break;
 
         case VK_HOME:
@@ -1164,7 +1190,28 @@ LRESULT OnChar(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     char ch = wParam;
     bAlphaNum = TRUE;
 
+    if (ch == 1) {
+        SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_SELECTALL, 0), 0);
+        return 0;
+    }
+
+    if (ch == 3) {
+        SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_COPY, 0), 0);
+        return 0;
+    }
+
+    if (ch == 22) {
+        SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_PASTE, 0), 0);
+        return 0;
+    }
+
+    if (ch == 24) {
+        SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_CUT, 0), 0);
+        return 0;
+    }
+
     if ((ch < ' ' /* 제어코드(~32) */ && ch != '\r' && ch != '\t') || ch == 127 /* Ctrl + BS */) { return 0; }
+    
     if (ch == '\r') {
         Abuf[0] = '\r';
         Abuf[1] = '\n';
