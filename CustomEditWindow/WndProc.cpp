@@ -563,9 +563,9 @@ void  InitializeGDIplus();
 void ShutdownGDIPlus();
 
 // 비트맵 생성
-Bitmap* hBitmap = NULL;
-void DrawText(WCHAR* text);
-void DrawBitmap(HWND hwnd, HDC hdc);
+// Bitmap* hBitmap = NULL;
+HBITMAP hBitmap = NULL;
+RECT g_wrt;
 
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
@@ -839,33 +839,7 @@ LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     return 0;
 }
-LRESULT OnTimer(HWND hWnd, WPARAM wParam, LPARAM lParam) {
-    POINT Mouse;
 
-    switch (wParam) {
-        case 1:
-            GetCursorPos(&Mouse);
-            ScreenToClient(hWnd, &Mouse);
-            SendMessage(hWnd, WM_MOUSEMOVE, 0, MAKELPARAM(Mouse.x, Mouse.y));
-            break;
-    }
-
-    return 0;
-}
-LRESULT OnSize(HWND hWnd, WPARAM wParam, LPARAM lParam) {
-    if (wParam != SIZE_MINIMIZED) {
-        GetClientRect(hWnd, &g_crt);
-        if (g_Option.wordWrap || g_Option.KeepPunctWithWord) {
-            RebuildLineInfo();
-        }
-        UpdateScrollInfo();
-        if (GetFocus() == hWnd) {
-            SetCaret();
-        }
-    }
-    return 0;
-
-}
 LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int row = 0, column = 0;
     int start = 0, end = 0, toff = 0;
@@ -1209,6 +1183,51 @@ LRESULT OnKeyUp(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 
+LRESULT OnTimer(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    POINT Mouse;
+
+    switch (wParam) {
+    case 1:
+        GetCursorPos(&Mouse);
+        ScreenToClient(hWnd, &Mouse);
+        SendMessage(hWnd, WM_MOUSEMOVE, 0, MAKELPARAM(Mouse.x, Mouse.y));
+        break;
+    }
+
+    return 0;
+}
+
+LRESULT OnSize(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    if (wParam != SIZE_MINIMIZED) {
+        GetClientRect(hWnd, &g_crt);
+        if (g_Option.wordWrap || g_Option.KeepPunctWithWord) {
+            RebuildLineInfo();
+        }
+        UpdateScrollInfo();
+        if (GetFocus() == hWnd) {
+            SetCaret();
+        }
+
+        if (hBitmap) {
+            // delete hBitmap;
+            DeleteObject(hBitmap);
+            hBitmap = NULL;
+        }
+    }
+    return 0;
+
+}
+
+LRESULT OnWindowPosChanged(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    LPWINDOWPOS lpWndPos = (LPWINDOWPOS)lParam;
+    g_wrt.left = lpWndPos->x;
+    g_wrt.top = lpWndPos->y;
+    g_wrt.right = lpWndPos->x + lpWndPos->cx;
+    g_wrt.bottom = lpWndPos->y + lpWndPos->cy;
+
+    return 0;
+}
+
 LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
@@ -1216,10 +1235,44 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int Top, Bottom;
     Top = yPos / LineHeight;
     Bottom = Top + g_crt.bottom / LineHeight;
+    
+    // if (hBitmap == NULL) {
+    //    hBitmap = new Bitmap(g_crt.right, g_crt.bottom, PixelFormat32bppARGB);
+    // }
+
+    // HBITMAP bmp;
+    // hBitmap->GetHBITMAP(Color(0, 0, 0, 0), &bmp);
+
+    if (hBitmap == NULL) {
+        hBitmap = CreateCompatibleBitmap(hdc, g_crt.right, g_crt.bottom);
+    }
+
+    HDC hMemDC = CreateCompatibleDC(hdc);
+    HGDIOBJ hOld = SelectObject(hMemDC, hBitmap);
+
+    FillRect(hMemDC, &g_crt, GetSysColorBrush(COLOR_WINDOW));
 
     for (int i = Top; i <= Bottom; i++) {
-        if (DrawLine(hdc, i) == 0) { break; }
+        if (DrawLine(hMemDC, i) == 0) { break; }
     }
+
+    // 알파 블렌딩 
+    // BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+    // POINT ptLocation = { g_wrt.left, g_wrt.top };
+    // SIZE szWnd = { g_wrt.right - g_wrt.left, g_wrt.bottom - g_wrt.top };
+    // POINT ptSrc = { 0, 0 };
+
+    // 윈도우 전체에 대한 알파 채널을 지원해야 하므로
+    // AlphaBlend 대신 UpdateLayeredWindow 함수 사용
+    // UpdateLayeredWindow(hWndMain, hdc, &ptLocation, &szWnd, hMemDC, &ptSrc, 0, &blend, ULW_ALPHA);
+
+    // 줄 단위 더블 버퍼링 구조로 작성시 로직 변경 필요
+    BitBlt(hdc, 0, 0, g_crt.right, g_crt.bottom, hMemDC, 0, 0, SRCCOPY);
+
+    SelectObject(hMemDC, hOld);
+    // DeleteObject(bmp);
+    DeleteDC(hMemDC);
+
     EndPaint(hWnd, &ps);
     return 0;
 }
@@ -1393,7 +1446,11 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 LRESULT OnDestroy(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     if (buf) { free(buf); }
     if (lineInfo) { free(lineInfo); }
-    if (hBitmap) { delete hBitmap; }
+    if (hBitmap) { 
+        // delete hBitmap;
+        DeleteObject(hBitmap);
+    }
+
     ShutdownGDIPlus();
     PostQuitMessage(0);
     return 0;
@@ -2000,10 +2057,33 @@ void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore, COLOR
         DeleteObject(hBrush);
     }
     else {
-        // 기존과 같이 출력
+        // GDI+의 그리기 동작은 전부 Graphics 클래스로부터 이뤄진다.
+        // 새로 만든 엔진이기 때문에 GDI와 같은 로직을 사용할 순 없는데
+        // 굳이 그럴 생각도 없으므로 알파 채널을 지원하는 32비트 포맷의 비트맵 생성용으로만 쓰기로 한다.
+        //Graphics g(hdc);
+
+        //// 계단 현상
+        //// g.SetSmoothingMode(SmoothingModeAntiAlias);
+
+        //// 글자 선명도 향상
+        //// g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
+
+        //g.Clear(Color(30, 0, 0, 0));
+
+        //// 시스템 기본 폰트 시용
+        //NONCLIENTMETRICS ncm = { sizeof(NONCLIENTMETRICS) };
+        //SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(NONCLIENTMETRICS), &ncm, 0);
+        //Font font(hdc, &ncm.lfMessageFont);
+
+        //PointF pointF(x, y);
+        //SolidBrush hBrush(Color(255, 0, 0, 0));
+
+        //g.DrawString(buf + idx, length, &font, pointF, &hBrush);
+        
         SetTextColor(hdc, fg);
         SetBkColor(hdc, bg);
         TextOut(hdc, x, y, buf + idx, length);
+
         if (ignore == FALSE) {
             x += GetCharWidth(buf + idx, length);
         }
@@ -2133,41 +2213,4 @@ void  InitializeGDIplus() {
 
 void ShutdownGDIPlus() {
     GdiplusShutdown(g_Token);
-}
-
-void DrawText(WCHAR* text) {
-    if (!hBitmap) {
-        hBitmap = new Bitmap(g_crt.right, g_crt.bottom, PixelFormat32bppARGB);
-    }
-    Graphics g(hBitmap);
-
-    g.Clear(Color(30, 0, 0, 0));
-
-    FontFamily fontFamily(L"Times New Roman");
-    Font font(&fontFamily, 32, FontStyleRegular, UnitPixel);
-    PointF pointF(30.0f, 10.0f);
-    SolidBrush solidBrush(Color(255, 0, 0, 0));
-
-    g.DrawString(text, -1, &font, pointF, &solidBrush);
-}
-
-void DrawBitmap(HWND hWnd, HDC hdc) {
-    if (!hBitmap) return;
-
-    HBITMAP bmp;
-    hBitmap->GetHBITMAP(Color(0, 0, 0, 0), &bmp);
-
-    HDC hMemDC = CreateCompatibleDC(hdc);
-    HGDIOBJ hOld = SelectObject(hMemDC, bmp);
-
-    BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
-    POINT ptLocation = { 200, 300 };
-    SIZE szWnd = { g_crt.right, g_crt.bottom };
-    POINT ptSrc = { 0, 0 };
-
-    UpdateLayeredWindow(hWnd, hdc, &ptLocation, &szWnd, hMemDC, &ptSrc, 0, &blend, ULW_ALPHA);
-
-    SelectObject(hMemDC, hOld);
-    DeleteObject(bmp);
-    DeleteDC(hMemDC);
 }

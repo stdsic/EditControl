@@ -24,6 +24,8 @@ LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam);
 LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam);
 LRESULT OnDestroy(HWND hWnd, WPARAM wParam, LPARAM lParam);
 
+LRESULT OnWindowPosChanged(HWND hWnd, WPARAM wParam, LPARAM lParam);
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam);
 int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
     // BOOL bDebugConsole = AllocConsole();
@@ -34,7 +36,8 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
         0,0,
         hInst,
         NULL, LoadCursor(NULL, IDC_ARROW),
-        (HBRUSH)(COLOR_WINDOW + 1),
+        // (HBRUSH)(COLOR_WINDOW + 1),
+        NULL,
         NULL,
         CLASS_NAME,
     };
@@ -73,6 +76,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 
     case WM_SIZE:
         return OnSize(hWnd, wParam, lParam);
+
+    case WM_WINDOWPOSCHANGED:
+        return OnWindowPosChanged(hWnd, wParam, lParam);
 
     case WM_TIMER:
         return OnTimer(hWnd, wParam, lParam);
