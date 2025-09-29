@@ -557,9 +557,15 @@ BOOL DeleteSelection();
 // GDI+를 이용할 생각이므로 구문이 섞여 다소 지저분해 보일 수 있다.
 // 일단 임시 코드를 따로 작성하고 완성되면 본 프로젝트에 적용하기로 한다.
 
+// GDI+ 초기화 및 해제
 ULONG_PTR g_Token;
 void  InitializeGDIplus();
 void ShutdownGDIPlus();
+
+// 비트맵 생성
+Bitmap* hBitmap = NULL;
+void DrawText(WCHAR* text);
+void DrawBitmap(HWND hwnd, HDC hdc);
 
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
@@ -1387,6 +1393,7 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 LRESULT OnDestroy(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     if (buf) { free(buf); }
     if (lineInfo) { free(lineInfo); }
+    if (hBitmap) { delete hBitmap; }
     ShutdownGDIPlus();
     PostQuitMessage(0);
     return 0;
@@ -2126,4 +2133,41 @@ void  InitializeGDIplus() {
 
 void ShutdownGDIPlus() {
     GdiplusShutdown(g_Token);
+}
+
+void DrawText(WCHAR* text) {
+    if (!hBitmap) {
+        hBitmap = new Bitmap(g_crt.right, g_crt.bottom, PixelFormat32bppARGB);
+    }
+    Graphics g(hBitmap);
+
+    g.Clear(Color(30, 0, 0, 0));
+
+    FontFamily fontFamily(L"Times New Roman");
+    Font font(&fontFamily, 32, FontStyleRegular, UnitPixel);
+    PointF pointF(30.0f, 10.0f);
+    SolidBrush solidBrush(Color(255, 0, 0, 0));
+
+    g.DrawString(text, -1, &font, pointF, &solidBrush);
+}
+
+void DrawBitmap(HWND hWnd, HDC hdc) {
+    if (!hBitmap) return;
+
+    HBITMAP bmp;
+    hBitmap->GetHBITMAP(Color(0, 0, 0, 0), &bmp);
+
+    HDC hMemDC = CreateCompatibleDC(hdc);
+    HGDIOBJ hOld = SelectObject(hMemDC, bmp);
+
+    BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+    POINT ptLocation = { 200, 300 };
+    SIZE szWnd = { g_crt.right, g_crt.bottom };
+    POINT ptSrc = { 0, 0 };
+
+    UpdateLayeredWindow(hWnd, hdc, &ptLocation, &szWnd, hMemDC, &ptSrc, 0, &blend, ULW_ALPHA);
+
+    SelectObject(hMemDC, hOld);
+    DeleteObject(bmp);
+    DeleteDC(hMemDC);
 }
