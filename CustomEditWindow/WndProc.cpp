@@ -1244,14 +1244,43 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     // hBitmap->GetHBITMAP(Color(0, 0, 0, 0), &bmp);
 
     if (hBitmap == NULL) {
-        hBitmap = CreateCompatibleBitmap(hdc, g_crt.right, g_crt.bottom);
+        // hBitmap = CreateCompatibleBitmap(hdc, g_crt.right, g_crt.bottom);
+        
+        // 24비트 포맷의 DDB는 알파 채널을 표현할 수 없다. 따라서 32비트 포맷의 DIB를 이용하기로 한다.
+        // DIB 섹션은 DIB이되 HBITMAP으로 표현되는 중간 포맷인데 적당히 변환 가능하여 GDI+와 GDI 모두 호환된다.
+        // DIBSECTION 구조체를 보면 첫 번째 멤버로 BITMAP 구조체를 가진다는 걸 알 수 있다.
+        // 때문에 BitBlt이나 StretchBlt도 사용 가능하므로 DIB 섹션을 이용하기로 한다.
+        // 단, 알파 비트를 직접 설정해야 한다는 번거로움이 있다.
+        // 일단 시도해보고 실패하면 추후 GDI+에 대한 연구를 끝내고 본 프로젝트를 다시 업데이트하기로 한다.
+        
+        // CreateDIBSection 함수는 래스터 데이터 크기를 조사하고 이 크기만큼 메모리를 할당하여 ppvBits(네 번째 인수)로 반환한다.
+        // 즉, 함수 내부적으로 래스터 데이터를 담을 버퍼를 생성하여 전달하는데 이 버퍼는 시스템에 의해 관리되므로 사용자가 신경쓸 필요 없다.
+        // 별도의 해제 구문이 필요하지 않으며 DeleteObject로 비트맵 리소스를 해제할 때 함께 알아서 정리된다.
+        BITMAPINFO bmi = { 0 };
+        LPBITMAPINFOHEADER lpInfo = &bmi.bmiHeader;
+        lpInfo->biSize = sizeof(BITMAPINFOHEADER);
+        lpInfo->biWidth = g_crt.right;
+        
+        // biHeight 멤버의 값을 음수 값으로 지정한다.
+        // 기본적으로 비트맵은 Bottom-up 방향의 포맷을 가지는데
+        // GDI+나 Direct2D 같은 그래픽 API에서는 Top-Down 좌표계를 사용한다.
+        // 따라서 음수로 변환하여 메모리의 첫 번째 스캔라인을 화면 맨 위로 올라가도록 만들어야 한다.
+        lpInfo->biHeight = -g_crt.bottom;
+        lpInfo->biPlanes = 1;
+        lpInfo->biBitCount = 32;
+        lpInfo->biCompression = BI_RGB;
+
+        void* pvBuffer = NULL;
+        hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &pvBuffer, NULL, 0);
     }
 
     HDC hMemDC = CreateCompatibleDC(hdc);
     HGDIOBJ hOld = SelectObject(hMemDC, hBitmap);
-
     FillRect(hMemDC, &g_crt, GetSysColorBrush(COLOR_WINDOW));
 
+    // Graphics g(hMemDC);
+    // g.Clear(Color(30, 0, 0, 0));
+    
     for (int i = Top; i <= Bottom; i++) {
         if (DrawLine(hMemDC, i) == 0) { break; }
     }
@@ -1262,8 +1291,7 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     // SIZE szWnd = { g_wrt.right - g_wrt.left, g_wrt.bottom - g_wrt.top };
     // POINT ptSrc = { 0, 0 };
 
-    // 윈도우 전체에 대한 알파 채널을 지원해야 하므로
-    // AlphaBlend 대신 UpdateLayeredWindow 함수 사용
+    // 윈도우 전체에 대한 알파 채널을 지원해야 하므로 AlphaBlend 대신 UpdateLayeredWindow 함수 사용
     // UpdateLayeredWindow(hWndMain, hdc, &ptLocation, &szWnd, hMemDC, &ptSrc, 0, &blend, ULW_ALPHA);
 
     // 줄 단위 더블 버퍼링 구조로 작성시 로직 변경 필요
@@ -2060,25 +2088,25 @@ void DrawSegment(HDC hdc, int& x, int y, int idx, int length, BOOL ignore, COLOR
         // GDI+의 그리기 동작은 전부 Graphics 클래스로부터 이뤄진다.
         // 새로 만든 엔진이기 때문에 GDI와 같은 로직을 사용할 순 없는데
         // 굳이 그럴 생각도 없으므로 알파 채널을 지원하는 32비트 포맷의 비트맵 생성용으로만 쓰기로 한다.
-        //Graphics g(hdc);
+        // Graphics g(hdc);
 
-        //// 계단 현상
-        //// g.SetSmoothingMode(SmoothingModeAntiAlias);
+        // 계단 현상
+        // g.SetSmoothingMode(SmoothingModeAntiAlias);
 
-        //// 글자 선명도 향상
-        //// g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
+        // 글자 선명도 향상
+        // g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
 
-        //g.Clear(Color(30, 0, 0, 0));
+        // g.Clear(Color(255, 0, 0, 0));
 
-        //// 시스템 기본 폰트 시용
-        //NONCLIENTMETRICS ncm = { sizeof(NONCLIENTMETRICS) };
-        //SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(NONCLIENTMETRICS), &ncm, 0);
-        //Font font(hdc, &ncm.lfMessageFont);
+        // 시스템 기본 폰트 시용
+        // NONCLIENTMETRICS ncm = { sizeof(NONCLIENTMETRICS) };
+        // SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(NONCLIENTMETRICS), &ncm, 0);
+        // Font font(hdc, &ncm.lfMessageFont);
 
-        //PointF pointF(x, y);
-        //SolidBrush hBrush(Color(255, 0, 0, 0));
+        // PointF pointF(x, y);
+        // SolidBrush hBrush(Color(255, 0, 0, 0));
 
-        //g.DrawString(buf + idx, length, &font, pointF, &hBrush);
+        // g.DrawString(buf + idx, length, &font, pointF, &hBrush);
         
         SetTextColor(hdc, fg);
         SetBkColor(hdc, bg);
