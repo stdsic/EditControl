@@ -1277,9 +1277,10 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     // Graphics g(hMemDC);
     // g.Clear(Color(30, 0, 0, 0));
     
-    int Top, Bottom, Line;
+    int Top, Bottom, Line, Start;
     Top = yPos / LineHeight;
-    Bottom = Top + g_crt.bottom / LineHeight;
+    Start = (yPos + ps.rcPaint.top) / LineHeight;
+    Bottom = (yPos + ps.rcPaint.bottom - 1) / LineHeight;
     Bottom = min(Bottom, lineCount - 1);
 
     RECT lrt;
