@@ -1232,10 +1232,6 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
 
-    int Top, Bottom;
-    Top = yPos / LineHeight;
-    Bottom = Top + g_crt.bottom / LineHeight;
-    
     // if (hBitmap == NULL) {
     //    hBitmap = new Bitmap(g_crt.right, g_crt.bottom, PixelFormat32bppARGB);
     // }
@@ -1265,7 +1261,7 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         // 기본적으로 비트맵은 Bottom-up 방향의 포맷을 가지는데
         // GDI+나 Direct2D 같은 그래픽 API에서는 Top-Down 좌표계를 사용한다.
         // 따라서 음수로 변환하여 메모리의 첫 번째 스캔라인을 화면 맨 위로 올라가도록 만들어야 한다.
-        lpInfo->biHeight = -g_crt.bottom;
+        lpInfo->biHeight = -LineHeight;
         lpInfo->biPlanes = 1;
         lpInfo->biBitCount = 32;
         lpInfo->biCompression = BI_RGB;
@@ -1276,15 +1272,30 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     HDC hMemDC = CreateCompatibleDC(hdc);
     HGDIOBJ hOld = SelectObject(hMemDC, hBitmap);
-    FillRect(hMemDC, &g_crt, GetSysColorBrush(COLOR_WINDOW));
+    HBRUSH hBrush = GetSysColorBrush(COLOR_WINDOW);
 
     // Graphics g(hMemDC);
     // g.Clear(Color(30, 0, 0, 0));
     
-    for (int i = Top; i <= Bottom; i++) {
-        if (DrawLine(hMemDC, i) == 0) { break; }
+    int Top, Bottom, Line;
+    Top = yPos / LineHeight;
+    Bottom = Top + g_crt.bottom / LineHeight;
+    Bottom = min(Bottom, lineCount - 1);
+
+    RECT lrt;
+    SetRect(&lrt, 0, 0, g_crt.right, LineHeight);
+
+    for (Line = Top; Line <= Bottom; Line++) {
+        FillRect(hMemDC, &lrt, hBrush);
+        DrawLine(hMemDC, Line);
+
+        // 줄 단위 더블 버퍼링 구조로 작성
+        BitBlt(hdc, 0, (Line - Top) * LineHeight, g_crt.right, (Line - Top) * LineHeight + LineHeight, hMemDC, 0, 0, SRCCOPY);
     }
 
+    // 남은 여백
+    SetRect(&lrt, 0, (Line - Top) * LineHeight, g_crt.right, g_crt.bottom);
+    FillRect(hdc, &lrt, hBrush);
     // 알파 블렌딩 
     // BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
     // POINT ptLocation = { g_wrt.left, g_wrt.top };
@@ -1294,9 +1305,8 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     // 윈도우 전체에 대한 알파 채널을 지원해야 하므로 AlphaBlend 대신 UpdateLayeredWindow 함수 사용
     // UpdateLayeredWindow(hWndMain, hdc, &ptLocation, &szWnd, hMemDC, &ptSrc, 0, &blend, ULW_ALPHA);
 
-    // 줄 단위 더블 버퍼링 구조로 작성시 로직 변경 필요
-    BitBlt(hdc, 0, 0, g_crt.right, g_crt.bottom, hMemDC, 0, 0, SRCCOPY);
 
+    DeleteObject(hBrush);
     SelectObject(hMemDC, hOld);
     // DeleteObject(bmp);
     DeleteDC(hMemDC);
@@ -2053,7 +2063,8 @@ int DrawLine(HDC hdc, int line) {
             bg = GetSysColor(COLOR_WINDOW);
         }
 
-        DrawSegment(hdc, x, line * LineHeight - yPos, idx, length, (idx + length == end), fg, bg);
+        // DrawSegment(hdc, x, line * LineHeight - yPos, idx, length, (idx + length == end), fg, bg);
+        DrawSegment(hdc, x, 0, idx, length, (idx + length == end), fg, bg);
 
         idx += length;
         if (idx == end) { return 1; }
