@@ -567,6 +567,9 @@ void ShutdownGDIPlus();
 HBITMAP hBitmap = NULL;
 RECT g_wrt;
 
+// 그리기 최적화
+void Invalidate(int idx1, int idx2 = -1);
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
 
@@ -2253,4 +2256,38 @@ void  InitializeGDIplus() {
 
 void ShutdownGDIPlus() {
     GdiplusShutdown(g_Token);
+}
+
+void Invalidate(int idx1, int idx2 /* = -1 */) {
+    // 문서를 편집하는 동작의 함수들을 보면 작업 단위가 오프셋이다.
+    // 따라서 그리기 최적화 함수 역시 오프셋을 받아 사용하기로 한다.
+    // 다시 그릴 영역을 직접 지정하면 되는데 간단한 계산식으로 충분히 만들 수 있다.
+    // 오프셋으로부터 픽셀 좌표를 계산하고 스크롤 값을 빼 화면상의 좌표를 얻어온다
+
+    RECT srt;
+    int x, y, y1, y2;
+    if(idx1 == -1) {
+        InvalidateRect(hWndMain, NULL, FALSE);
+        return;
+    }
+
+    GetCoordinate(idx1, x, y);
+    y1 = y - yPos;
+    
+    if (idx2 == -1) {
+        y2 = g_crt.bottom;
+    }
+    else {
+        GetCoordinate(idx2, x, y);
+        y2 = y - yPos + LineHeight;
+    }
+
+    // 선택 영역은 작업 영역보다 커질 수 있다.
+    // 따라서, 정확한 범위를 얻으려면 아래와 같이 범위를 점검해야 한다.
+    // 단, InvalidateRect 함수가 클리핑 영역을 알아서 관리하므로 지금 코드에서는 그럴 필요가 없다.
+    // y1 = max(y1, 0);
+    // y2 = min(y2, g_crt.bottom);
+
+    SetRect(&srt, 0, y1, g_crt.right, y2);
+    InvalidateRect(hWndMain, &srt, FALSE);
 }
