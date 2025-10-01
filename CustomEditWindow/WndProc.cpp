@@ -603,6 +603,35 @@ struct Paragraph {
 
 Paragraph FindParagraphRange(int idx);
 
+// 정말 간단하게 문단의 범위를 찾는 함수를 만들었다.
+// 좋은 방법이야 많겠지만, 우선 가장 간단하고 확실한 최적화 방법을 사용하기로 한다.
+// 자동 개행으로 인해 발생할 수 있는 최소/최대 범위가 문단 영역이므로 해당 영역을 통째로 다시 그리는 것이다.
+
+// 그런데, 막상 작성하고 보니 마음에 들지 않는다. 몇 가지 문제가 있는데 이를 살펴보자.
+// 우선, 다시 그리려는 문단 영역이 작업영역의 크기보다 넓은 경우 그릴 필요가 없는 영역까지 포함하게 된다.
+// 즉, GetCoordinate 호출시 불필요한 계산으로 속도 저하가 생길 것 같다.
+// 다행히 InvalidateRect가 클리핑 영역을 알아서 판단하기 때문에 그리는 동작 자체는 빠르게 수행될 것이다.
+// 또 다른 문제는 Paragraph 구조체 변수를 하나 만들어야 한다는 것인데 이게 생각보다 번거롭다.
+
+// 위 두 가지 문제를 해결할 좋은 방법이 있다.
+// 바로, 현재 문단부터 작업 영역 하단까지의 범위를 전부 다시 그리는 것이다.
+// 이 동작은 Invalidate 함수를 호출할 때 첫 번째 인수만 전달하면 되는데,
+// 이렇게 하면 문단 범위를 조사할 때 FindParagraphRange 함수의 while 반복문을 하나 줄일 수 있고,
+// Invalidate 함수 내부적으로 호출하는 GetCoordinate 함수의 호출 횟수도 한 번으로 줄일 수 있다.
+// 이 구조를 사용하게 되면 FindParagraphRange 함수의 리턴값도 구조체가 아닌 단순 int 값이 된다.
+// 즉, Paragraph 구조체 변수를 굳이 만들 필요가 없다.
+
+// 아무래도 두 번째 방법이 좋을 것 같다.
+// 함수 이름과 리턴 타입을 수정하여 다시 작성해보자.
+int FindParagraphStart(int idx);
+// 이제 함수를 적용해보자.
+// 삽입/삭제 동작을 하는 메세지에서 Invalidate를 호출할 때 FindParagraphStart 함수를 사용하면 된다.
+// 기본적으로 삽입, 삭제, 붙여넣기, 잘라내기 등 편집 동작에서 이를 호출하면 되는데
+// 예외적으로 삭제 동작에 의해 화면이 스크롤 되는 경우, 즉 스크롤 범위가 페이지 높이보다 작을 때 전체 영역을 다시 그리도록 했다.
+
+// 다음은 선택 영역을 그릴 때 범위를 최적화 해보자.
+// 
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
 
@@ -828,7 +857,7 @@ LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         if (SelectStart != SelectEnd) {
             SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_COPY, 0), 0);
             DeleteSelection();
-            InvalidateRect(hWnd, NULL, TRUE);
+            Invalidate(FindParagraphStart(off));
             SetCaret();
         }
         break;
@@ -858,7 +887,7 @@ LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             Insert(off, ptr);
             GlobalUnlock(hMem);
             CloseClipboard();
-            InvalidateRect(hWnd, NULL, TRUE);
+            Invalidate(FindParagraphStart(off));
             off += wcslen(ptr);
             SetCaret();
         }
@@ -1056,7 +1085,7 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
                     Delete(off, 1);
                 }
             }
-            InvalidateRect(hWnd, NULL, TRUE);
+            Invalidate(FindParagraphStart(off));
             SetCaret();
             break;
 
@@ -1107,7 +1136,7 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
                     }
                 }
             }
-            InvalidateRect(hWnd, NULL, TRUE);
+            Invalidate(FindParagraphStart(off));
             SetCaret();
             break;
 
@@ -1397,7 +1426,7 @@ LRESULT OnChar(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     }
 
     bComp = FALSE;
-    InvalidateRect(hWnd, NULL, TRUE);
+    Invalidate(FindParagraphStart(off - wcslen(Abuf)));
     SetCaret();
     return 0;
 }
@@ -1417,7 +1446,7 @@ LRESULT OnImeChar(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     Insert(off, Wbuf);
     off += wcslen(Wbuf);
     bComp = FALSE;
-    InvalidateRect(hWnd, NULL, TRUE);
+    Invalidate(FindParagraphStart(off - wcslen(Wbuf)));
     SetCaret();
     return 0;
 }
@@ -1464,7 +1493,7 @@ LRESULT OnImeComposition(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         off += Length;
         ImmReleaseContext(hWnd, hImc);
         free(Cbuf);
-        InvalidateRect(hWnd, NULL, TRUE);
+        Invalidate(FindParagraphStart(off - Length));
         SetCaret();
     }
 
@@ -2016,6 +2045,7 @@ void UpdateScrollInfo() {
     if (si.nMax < si.nPage) {
         // 스크롤 범위가 페이지 높이보다 작으면(DISABLE 조건) 0으로 맞춤
         yPos = 0;
+        Invalidate(-1);
     }
     si.nPos = yPos;
     SetScrollInfo(hWndMain, SB_VERT, &si, TRUE);
@@ -2323,4 +2353,25 @@ void Invalidate(int idx1, int idx2 /* = -1 */) {
 
     SetRect(&srt, 0, y1, g_crt.right, y2);
     InvalidateRect(hWndMain, &srt, FALSE);
+}
+
+Paragraph FindParagraphRange(int idx) {
+    int paraStart, paraEnd;
+    paraStart = paraEnd = idx;
+
+    while (paraStart > 0 && !IsCRLF(paraStart)) { paraStart--; }
+    while (paraEnd < docLength && !IsCRLF(paraEnd)) { paraEnd++; }
+    if (paraStart > 0) { paraStart += 2; }
+
+    Paragraph CurrentParagraph = { paraStart, paraEnd };
+    return CurrentParagraph;
+}
+
+int FindParagraphStart(int idx) {
+    int paraStart = idx;
+
+    while (paraStart > 0 && !IsCRLF(paraStart)) { paraStart--; }
+    if (paraStart > 0) { paraStart += 2; }
+
+    return paraStart;
 }
