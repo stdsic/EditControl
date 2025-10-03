@@ -633,6 +633,10 @@ int FindParagraphStart(int idx);
 // 정해진 범위를 그리기만 하면 되므로 이전보단 쉽다.
 // 기존 코드에서 InvalidateRect를 Invalidate로 바꾸고 정규화만 하면 된다.
 
+// 이제 완성까지 얼마 안남았다.
+// 클릭과 관련된 기능을 몇 가지 더 추가하고 마우스 휠까지 지원하면 기능적인건 모두 완성된다.
+// 물론 메모리 관리도 필요한데 일단 기능을 모두 추가한 다음에 수정하는 것으로 하자.
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
 
