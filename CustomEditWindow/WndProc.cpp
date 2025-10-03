@@ -630,7 +630,8 @@ int FindParagraphStart(int idx);
 // 예외적으로 삭제 동작에 의해 화면이 스크롤 되는 경우, 즉 스크롤 범위가 페이지 높이보다 작을 때 전체 영역을 다시 그리도록 했다.
 
 // 다음은 선택 영역을 그릴 때 범위를 최적화 해보자.
-// 
+// 정해진 범위를 그리기만 하면 되므로 이전보단 쉽다.
+// 기존 코드에서 InvalidateRect를 Invalidate로 바꾸고 정규화만 하면 된다.
 
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
@@ -649,9 +650,10 @@ LRESULT OnMouseMove(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     if (!bCapture) { return 0; }
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
 
+    int toff = off;
     off = SelectEnd = GetOffsetFromPoint(x + xPos, y + yPos);
     SetCaret();
-    InvalidateRect(hWnd, NULL, TRUE);
+    Invalidate(min(toff, off), max(toff, off));
 
     int row, column, start, end;
     BOOL bInstallTimer = FALSE;
@@ -2280,18 +2282,23 @@ int GetNextWord(int idx) {
 
 void ClearSelection() {
     if (SelectStart != SelectEnd) {
+        Invalidate(min(SelectStart, SelectEnd), max(SelectStart, SelectEnd));
         SelectStart = SelectEnd = 0;
-        InvalidateRect(hWndMain, NULL, TRUE);
     }
 }
 
 void ExpandSelection(int start, int end) {
+    int oldSelectEnd;
+
     if (SelectStart == SelectEnd) {
         SelectStart = start;
         SelectEnd = end;
+        Invalidate(min(SelectStart, SelectEnd), max(SelectStart, SelectEnd));
     }
     else {
+        oldSelectEnd = SelectEnd;
         SelectEnd = end;
+        Invalidate(min(oldSelectEnd, SelectEnd), max(oldSelectEnd, SelectEnd));
     }
 
     InvalidateRect(hWndMain, NULL, TRUE);
