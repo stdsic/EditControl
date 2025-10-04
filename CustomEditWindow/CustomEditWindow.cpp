@@ -25,13 +25,14 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam);
 LRESULT OnDestroy(HWND hWnd, WPARAM wParam, LPARAM lParam);
 
 LRESULT OnWindowPosChanged(HWND hWnd, WPARAM wParam, LPARAM lParam);
+LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam);
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam);
 int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
     // BOOL bDebugConsole = AllocConsole();
 
     WNDCLASS wc = {
-        CS_HREDRAW | CS_VREDRAW,
+        CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
         WndProc,
         0,0,
         hInst,
@@ -103,6 +104,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 
     case WM_IME_STARTCOMPOSITION:
         return 0;
+
+    case WM_LBUTTONDBLCLK:
+        return OnLButtonDblClk(hWnd, wParam, lParam);
 
     case WM_LBUTTONDOWN:
         return OnLButtonDown(hWnd, wParam, lParam);

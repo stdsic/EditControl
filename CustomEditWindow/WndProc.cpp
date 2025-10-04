@@ -637,6 +637,30 @@ int FindParagraphStart(int idx);
 // 클릭과 관련된 기능을 몇 가지 더 추가하고 마우스 휠까지 지원하면 기능적인건 모두 완성된다.
 // 물론 메모리 관리도 필요한데 일단 기능을 모두 추가한 다음에 수정하는 것으로 하자.
 
+// 이번엔 더블 클릭 기능을 추가해보자.
+// 대부분의 편집기에서 더블클릭으로 단어를 선택할 수 있다.
+// 이 기능을 추가할건데 더블클릭 메세지를 받을 수 있어야 하므로 스타일을 추가한다.
+// 마우스 클릭에 의해 캐럿이 이동하는데 이를 이용해 단어 단위 선택 함수를 만들어보자.
+void SelectWord(int idx, int &start, int &end);
+
+// SelectWord 라는 함수를 만들었는데 딱히 어렵지 않다.
+// LButtonDblClk 함수도 추가했는데 마찬가지로 매우 간단하다.
+
+LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    int x = GET_X_LPARAM(lParam);
+    int y = GET_Y_LPARAM(lParam);
+    int toff = GetOffsetFromPoint(x + xPos, y + yPos);
+
+    SelectWord(toff, SelectStart, SelectEnd);
+    if (SelectStart != SelectEnd) {
+        off = SelectEnd;
+        SetCaret();
+        Invalidate(-1);
+    }
+
+    return 0;
+}
+
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
 
@@ -2385,4 +2409,22 @@ int FindParagraphStart(int idx) {
     if (paraStart > 0) { paraStart += 2; }
 
     return paraStart;
+}
+
+void SelectWord(int idx, int& start, int& end) {
+    while (1) {
+        if (IsDelims(idx) || idx == 0) { break; }
+        idx--;
+    }
+
+    if (idx != 0 && idx != wcslen(buf) && IsDelims(idx + 1) == FALSE) {
+        idx++;
+    }
+    start = idx;
+
+    while (1) {
+        if (IsDelims(idx) == TRUE) { break; }
+        idx++;
+    }
+    end = idx;
 }
