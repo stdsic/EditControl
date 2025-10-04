@@ -650,6 +650,19 @@ void SelectWord(int idx, int &start, int &end);
 // 선택 영역을 확장할 때 화면을 벗어나는 지점까지 범위를 넓히려면 반드시 필요하다.
 // 이것도 아주 간단한 코드 몇 줄이면 간단하게 지원할 수 있다.
 
+// 이제 마지막으로 마우스 휠과 메모리 관리만 남았다.
+// 가능하다면 아주 큰 파일을 편집할 때의 최적화 방법도 추가할 예정이다.
+// 지금은 우선 몇 가지 예외 분기를 추가해보자.
+
+// 선택 중 문자 삽입에 의해 문자열이 지워지는 현상을 막기 위해 간단한 코드를 추가했다.
+// 특히 조립 문자에 대해서는 특별한 처리가 필요한데 WM_LBUTTONUP에 주석과 함께 코드를 작성해두었다.
+// 선택 영역이 존재하는 상태에서 문자를 조립하면 어쨋거나 IME는 입력된 문자를 열심히 조립한다.
+// 이 상태에서 버튼을 놓고 방향키를 입력하면 조립된 문자가 선택 영역을 그대로 덮어쓴다.
+
+// 자주 있는 일은 아니지만 어쨋거나 불편하고 버그라고 오해할 수 있다.
+// 때문에 아예 이런 동작이 발생하지 않도록 막아두는 것이 좋다.
+// IME에 알림을 하나 보내서 조립된 문자를 취소해버리면 해결할 수 있다.
+
 LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam);
     int y = GET_Y_LPARAM(lParam);
@@ -741,6 +754,12 @@ LRESULT OnLButtonUp(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     bCapture = FALSE;
     ReleaseCapture();
     KillTimer(hWnd, 1);
+
+    // 드래그 중 입력한 조립 문자를 취소한다.
+    HIMC hImc = ImmGetContext(hWnd);
+    ImmNotifyIME(hImc, NI_COMPOSITIONSTR, CPS_CANCEL, 0);
+    ImmReleaseContext(hWnd, hImc);
+
     return 0;
 }
 
@@ -900,7 +919,8 @@ LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     switch (LOWORD(wParam)) {
     case IDM_CUT:
-        if (SelectStart != SelectEnd) {
+        if (bCapture) { break; }
+        if (SelectStart != SelectEnd && bCapture == FALSE) {
             SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_COPY, 0), 0);
             DeleteSelection();
             Invalidate(FindParagraphStart(off));
@@ -925,6 +945,7 @@ LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         break;
 
     case IDM_PASTE:
+        if (bCapture) { break; }
         if (IsClipboardFormatAvailable(CF_TEXT)) {
             DeleteSelection();
             OpenClipboard(hWnd);
@@ -1118,6 +1139,8 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             break;
 
         case VK_DELETE:
+            if (bCapture) { break; }
+
             if (bShift) {
                 SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_CUT, 0), 0);
                 break;
@@ -1136,6 +1159,7 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             break;
 
         case VK_BACK:
+            if (bCapture) { break; }
             if ((off == 0 && SelectStart == SelectEnd) || (bShift && bCtrl)) { break; }
 
             if (DeleteSelection() == FALSE) {
@@ -1432,6 +1456,8 @@ LRESULT OnChar(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     char ch = wParam;
     bAlphaNum = TRUE;
 
+    if (bCapture) { return 0; }
+
     if (ch == 1) {
         SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_SELECTALL, 0), 0);
         return 0;
@@ -1502,7 +1528,9 @@ LRESULT OnImeComposition(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     HIMC hImc = NULL;
     WCHAR* Cbuf = NULL;
 
+    if (bCapture) { return 0; }
     DeleteSelection();
+
     if (lParam & GCS_COMPSTR) {
         hImc = ImmGetContext(hWnd);
         DWORD dwConversion, dwSentence;
