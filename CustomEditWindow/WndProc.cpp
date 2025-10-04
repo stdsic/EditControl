@@ -646,6 +646,10 @@ void SelectWord(int idx, int &start, int &end);
 // SelectWord 라는 함수를 만들었는데 딱히 어렵지 않다.
 // LButtonDblClk 함수도 추가했는데 마찬가지로 매우 간단하다.
 
+// 다음은 Shift 클릭을 추가해보자.
+// 선택 영역을 확장할 때 화면을 벗어나는 지점까지 범위를 넓히려면 반드시 필요하다.
+// 이것도 아주 간단한 코드 몇 줄이면 간단하게 지원할 수 있다.
+
 LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam);
     int y = GET_Y_LPARAM(lParam);
@@ -662,12 +666,24 @@ LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    int toff;
     int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
 
-    ClearSelection();
+    BOOL bShift, bCtrl;
+    bShift = ((GetKeyState(VK_SHIFT) & 0x8000) != 0);
+    bCtrl = ((GetKeyState(VK_CONTROL) & 0x8000) != 0);
 
-    off = GetOffsetFromPoint(x + xPos, y + yPos);
-    SelectStart = SelectEnd = off;
+    if (bShift) {
+        toff = GetOffsetFromPoint(x + xPos, y + yPos);
+        ExpandSelection(off, toff);
+        off = toff;
+    }
+    else {
+        ClearSelection();
+        off = GetOffsetFromPoint(x + xPos, y + yPos);
+        SelectStart = SelectEnd = off;
+    }
+
     SetCapture(hWnd);
     bCapture = TRUE;
     SetCaret();
