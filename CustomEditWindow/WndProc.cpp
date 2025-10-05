@@ -663,6 +663,11 @@ void SelectWord(int idx, int &start, int &end);
 // 때문에 아예 이런 동작이 발생하지 않도록 막아두는 것이 좋다.
 // IME에 알림을 하나 보내서 조립된 문자를 취소해버리면 해결할 수 있다.
 
+// 메모리 관리 코드를 수정해보자.
+// 사실 거의 다 만들어둔 상태라 코드를 추가할 곳이 RebuildLineInfo 함수밖에 없다.
+// 루프 안에 예외 분기를 만들고 재할당 코드를 추가한다.
+// 이러면 사실상 메모리 관리는 끝났다고 볼 수 있다.
+
 LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam);
     int y = GET_Y_LPARAM(lParam);
@@ -1578,11 +1583,11 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     InitializeGDIplus();
 
     hWndMain = hWnd;
-    bufLength = 0x1000;
+    bufLength = 0x400;
     docLength = 0;
     bComp = FALSE;
     PrevX = 0;
-    xMax = 1024;
+    xMax = 0x400;
     xPos = yPos = 0;
     SelectStart = SelectEnd = 0;
     bCapture = FALSE;
@@ -1612,7 +1617,7 @@ LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     LineRatio = 120;
     LineHeight = (int)(FontHeight * LineRatio / 100);
 
-    lineInfoSize = 0x1000;
+    lineInfoSize = 0x400;
     lineInfo = (LineInfo*)malloc(sizeof(LineInfo) * lineInfoSize);
     memset(lineInfo, 0, sizeof(lineInfo) * lineInfoSize);
 
@@ -2049,6 +2054,12 @@ void RebuildLineInfo() {
     WCHAR* ptr = buf;
 
     while (1) {
+        if (curLine >= lineCount) {
+            lineCount += 0x400;
+            lineInfo = (LineInfo*)realloc(lineInfo, sizeof(LineInfo) * lineCount);
+            if (lineInfo == NULL) { return; }
+            memset(lineInfo + (lineCount - 0x400), 0, sizeof(LineInfo) * 0x400);
+        }
         GetLine(curLine, start, end);
 
         lineInfo[curLine].start = start;
