@@ -668,6 +668,15 @@ void SelectWord(int idx, int &start, int &end);
 // 루프 안에 예외 분기를 만들고 재할당 코드를 추가한다.
 // 이러면 사실상 메모리 관리는 끝났다고 볼 수 있다.
 
+// 마지막으로 휠 기능을 추가해보자.
+// 코드 자체는 어렵지 않으므로 따로 설명하지 않기로 한다.
+// 다만, WHEEL_DELTA와 wParam으로 전달되는 값에 대해서는 설명이 필요하다.
+// 기본적으로 WHEEL_DELTA는 120이라는 매크로 상수값이다.
+// wParam으로 전달되는 값은 HIWORD에 휠이 회전한 값, 통상 +-120이 전달된다.
+// LOWORD는 조합키라고 보면 되는데 휠 메세지가 발생했을 때
+// Ctrl, Shift 등의 키가 같이 눌린 상태였는지를 나타내는 값이 전달된다.
+// 이제 코드를 작성해보자. 간단한 산술식이면 쉽게 만들 수 있다.
+
 LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam);
     int y = GET_Y_LPARAM(lParam);
@@ -795,14 +804,40 @@ LRESULT OnKillFocus(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     return 0;
 }
+
 LRESULT OnMouseWheel(HWND hWnd, WPARAM wParam, LPARAM lParam) {
+    static int Sum = 0;
+    int Lines = 0, nScroll = 0, WheelUnit = 0;
+    SHORT WheelDelta;
+
+    // HIWORD(wParam) : 휠 회전값(통상 +-120)
+    WheelDelta = (SHORT)HIWORD(wParam);
+    SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0, &Lines, 0);
+
+    // WHEEL_DELTA(120)
+    WheelUnit = WHEEL_DELTA / Lines;
+    Sum += WheelDelta;
+    nScroll = Sum / WheelUnit;
+    Sum %= WheelUnit;
+
+    int Steps = abs(nScroll);
+    for (int i = 0; i < Steps; i++) {
+        if (nScroll > 0) {
+            SendMessage(hWnd, WM_VSCROLL, SB_LINEUP, 0);
+        }
+        else {
+            SendMessage(hWnd, WM_VSCROLL, SB_LINEDOWN, 0);
+        }
+    }
 
     return 0;
 }
+
 LRESULT OnSetCursor(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     return 0;
 }
+
 LRESULT OnContextMenu(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     HMENU hPopupMenu;
     POINT Mouse = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
