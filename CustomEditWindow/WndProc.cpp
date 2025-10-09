@@ -237,7 +237,7 @@ int lineInfoSize = 0x400;
 int lineCount = 0;
 
 // 당장 떠오르는 멤버 변수는 start와 end 뿐이므로 이렇게 두고 줄 정보를 조사하는 함수나 추가해보자.
-void RebuildLineInfo();
+// void RebuildLineInfo();              // 최적화로 인해 변경됨
 
 // 줄 정보를 만들었으므로 GetLine 함수의 호출부를 찾아 하나씩 바꿔주면 된다.
 // GetLine 함수 역시 줄 정보를 사용할 수 있으며, 코드가 훨씬 짧아진다.
@@ -685,8 +685,30 @@ void SelectWord(int idx, int &start, int &end);
 // 단일 버퍼를 사용하는 현재 구조에서 1만번째 줄에 문자를 삽입/삭제하는 등의 편집을 한다고 해보자.
 // 당장 큰 파일을 불러와서 초기화할 때는 크게 문제가 없지만, 편집으로 인해 문서의 줄 정보가 바뀔 때는 영향을 받는다.
 
-// 문자를 삽입/삭제하는 메세지에서 현재 자리에 있는 문자를 편집할 때 예외 분기를 추가하면 조금이나마 속도를 개선할 수 있을 것이다.
+// 그리기 동작에 최적화가 필요했던 것처럼 줄 정보를 갱신하는 동작도 최적화가 필요하다.
+// 우선, 줄 정보를 갱신하는 시점과 현재 구조를 분석해보자.
 
+// 줄 정보가 갱신되는 시점은 삽입/삭제가 발생할 때이며,
+// 사용자에 의해 문서가 편집되면 삽입/삭제 함수 내부적으로 RebuildLineInfo 함수를 호출하여
+// 문서 처음부터 끝까지 루프를 돌아 줄 정보를 갱신한다.
+
+// RebuildLineInfo 함수가 가진 while 루프를 보면, 매회 GetLine 함수를 호출한다는 것을 알 수 있다.
+// GetLine 함수는 내부적으로 이미 만들어져 있는 줄 정보 배열(lineInfo)을 참조하여
+// 해당 줄에 대한 정보를 조사하고 FindWrapPoint 함수를 호출하여 자동 개행 후보 지점을 찾는다.
+// 즉, 서로가 서로를 참조하되 적절한 예외 분기로 인해 충돌없이 제대로 동작하고 있다.
+// 우선, 분석은 여기까지 하고 다음으로 넘어가보자.
+
+// 앞서 보았듯, 줄 정보를 갱신할 때 그 범위가 문서 전체이므로 속도가 상당히 느리다.
+// 갱신할 범위를 적당히 지정할 수 있다면 속도 문제를 해결할 수 있을 것이다.
+
+// 우선 시그니처를 변경해보자.
+void RebuildLineInfo(int idx = -1, int length = -1);
+
+// 화면 크기가 변하는 경우에는 줄 정보 전체를 갱신해야 한다.
+// 즉, 기존 동작을 그대로 수행하면 되므로 선택적 인수를 추가하고 수정할 부분을 최소화한다.
+// 범위를 받도록 원형을 변경하기는 했는데 막상 생각해보니 범위를 어떻게 구할 것인가가 문제이다.
+
+// 우선, 그리기 최적화에서와 같이 문단을 기준으로 앞/뒤로 나누어 갱신하는 것이 가장 쉽고 일반적일 것 같다.
 
 LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam);
@@ -1450,7 +1472,7 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         lpInfo->biHeight = -LineHeight;
         lpInfo->biPlanes = 1;
         lpInfo->biBitCount = 32;
-        lpInfo->biCompression = BI_RGB;
+        lpInfo->biCompression = BI_BITFIELDS;
 
         void* pvBuffer = NULL;
         hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &pvBuffer, NULL, 0);
@@ -1491,7 +1513,6 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     // 윈도우 전체에 대한 알파 채널을 지원해야 하므로 AlphaBlend 대신 UpdateLayeredWindow 함수 사용
     // UpdateLayeredWindow(hWndMain, hdc, &ptLocation, &szWnd, hMemDC, &ptSrc, 0, &blend, ULW_ALPHA);
-
 
     DeleteObject(hBrush);
     SelectObject(hMemDC, hOld);
@@ -2094,7 +2115,7 @@ int WordBreakProc(int pos, int start, WBPType type) {
     return back;
 }
 
-void RebuildLineInfo() {
+void RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */) {
     int curLine = 0, pos = 0, wrapEnd = 0;
     int start = 0, end = 0;
     WCHAR* ptr = buf;
