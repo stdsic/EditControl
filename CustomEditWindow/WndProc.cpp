@@ -1495,6 +1495,14 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         // 이때 RGBQUAD는 팔레트라는 의미가 사라지고 일시적으로 RGB 마스크 배열로 해석되어 단순히 4바이트 크기의 메모리 공간으로만 사용된다.
         // RGBQUAD 구조체의 멤버 순서를 보면, Intel 아키텍처 기반의 LE(Little Endian) 비트 스트림 방식을 기본(Default)으로 가정하여 설계된 구조체라는 것을 알 수 있다.
         
+        // BI_BITFIELDS를 지정하면 시스템(Windows GDI)은 내부적으로 bmiColors 멤버를 다음의 순서대로 해석한다.
+        // - [0]: Red
+        // - [1]: Green
+        // - [2]: Blue
+
+        // 기존과 같은 방식(BGRA)으로 픽셀 포맷을 지정하고 싶으면 [0] = 0x00FF0000, [1] = 0x0000FF00, [2] = 0x000000FF를 대입하면 되고,
+        // 만약 Direct나 GDI+가 사용하는 픽셀 포맷(RGBA)을 원하면 [0] = 0x000000FF, [1] = 0x0000FF00, [2] = 0x00FF0000로 지정하면 된다.
+
         BITMAPINFO* bmi = (BITMAPINFO*)malloc(sizeof(BITMAPINFOHEADER) + sizeof(DWORD) * 3);
         memset(bmi, 0, sizeof(BITMAPINFOHEADER) + sizeof(DWORD) * 3);
 
