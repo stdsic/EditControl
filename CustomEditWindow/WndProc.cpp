@@ -729,8 +729,6 @@ void RebuildLineInfo(int idx = -1, int length = -1);
 // 나는 크게 세 가지가 떠올랐는데 가장 먼저 떠오른 것이 지연 갱신이다(Lazy Update).
 // 또, 문단을 관리할 구조체를 두고 캐싱하거나 변경된 범위를 추적하는 방법도 떠올릴 수 있다.
 
-// 우선은 구상만하고 코드는 다음에 작성하기로 한다.
-
 LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam);
     int y = GET_Y_LPARAM(lParam);
@@ -1481,8 +1479,26 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         // CreateDIBSection 함수는 래스터 데이터 크기를 조사하고 이 크기만큼 메모리를 할당하여 ppvBits(네 번째 인수)로 반환한다.
         // 즉, 함수 내부적으로 래스터 데이터를 담을 버퍼를 생성하여 전달하는데 이 버퍼는 시스템에 의해 관리되므로 사용자가 신경쓸 필요 없다.
         // 별도의 해제 구문이 필요하지 않으며 DeleteObject로 비트맵 리소스를 해제할 때 함께 알아서 정리된다.
-        BITMAPINFO bmi = { 0 };
-        LPBITMAPINFOHEADER lpInfo = &bmi.bmiHeader;
+        
+        // 알파 블렌딩이 가능한 비트맵을 생성하기 위해 비트 압축(또는 해석) 방식을 BI_BITFIELDS로 지정했다.
+        // BI_ALPHABITFIELDS도 있지만 더 간단한 구조로 만들려면 수동으로 추가하는 것이 낫다.
+        
+        // bmi를 포인터 타입으로 변경했으며 RGBQUAD 구조체, 즉 팔레트 구조체를 3개분만큼 추가하여 메모리를 할당했다.
+        // 이는 마스크를 지정하기 위함인데, 정확히는 RGB 비트 순서를 지정하는 것이다.
+        // BI_BITFIELDS 방식으로 비트맵을 생성하면 GDI 표준 포맷인 BGRA 순서가 아니라 임의로 픽셀의 저장 방식을 변경할 수 있다.
+        
+        // 이때 RGBQUAD 구조체가 사용되는데 RGBQUAD 구조체는 기본적으로 팔레트용,
+        // 즉 팔레트 기반 비트맵(8bpp 이하)에서 사용되었던 색상 테이블의 구성 요소 중 하나이다.
+        // 24bpp, 32bpp에서는 더이상 직접적으로 사용되지 않으나 비트맵을 생성할 때
+        // 해석 방식을 BI_BITFIELDS로 지정하면 시스템(GDI)이 픽셀의 포맷을 새로 정의하기 위해 RGBQUAD 구조체를 확인한다.
+        
+        // 이때 RGBQUAD는 팔레트라는 의미가 사라지고 일시적으로 RGB 마스크 배열로 해석되어 단순히 4바이트 크기의 메모리 공간으로만 사용된다.
+        // RGBQUAD 구조체의 멤버 순서를 보면, Intel 아키텍처 기반의 LE(Little Endian) 비트 스트림 방식을 기본(Default)으로 가정하여 설계된 구조체라는 것을 알 수 있다.
+        
+        BITMAPINFO* bmi = (BITMAPINFO*)malloc(sizeof(BITMAPINFOHEADER) + sizeof(DWORD) * 3);
+        memset(bmi, 0, sizeof(BITMAPINFOHEADER) + sizeof(DWORD) * 3);
+
+        LPBITMAPINFOHEADER lpInfo = &bmi->bmiHeader;
         lpInfo->biSize = sizeof(BITMAPINFOHEADER);
         lpInfo->biWidth = g_crt.right;
         
@@ -1495,8 +1511,13 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         lpInfo->biBitCount = 32;
         lpInfo->biCompression = BI_BITFIELDS;
 
+        DWORD* pMask = (DWORD*)(bmi->bmiColors);
+        pMask[0] = 0x00FF0000;
+        pMask[1] = 0x0000FF00;
+        pMask[2] = 0x000000FF;
+
         void* pvBuffer = NULL;
-        hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &pvBuffer, NULL, 0);
+        hBitmap = CreateDIBSection(hdc, bmi, DIB_RGB_COLORS, &pvBuffer, NULL, 0);
     }
 
     HDC hMemDC = CreateCompatibleDC(hdc);
