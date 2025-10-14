@@ -729,6 +729,16 @@ void RebuildLineInfo(int idx = -1, int length = -1);
 // 나는 크게 세 가지가 떠올랐는데 가장 먼저 떠오른 것이 지연 갱신이다(Lazy Update).
 // 또, 문단을 관리할 구조체를 두고 캐싱하거나 변경된 범위를 추적하는 방법도 떠올릴 수 있다.
 
+// RebuildLineInfo 함수의 동작을 나누어보자.
+// 앞에서 말했듯, 크게 두 가지인데 하나는 문서 전체를 갱신하는 것이고 다른 하나는 현재 문단(또는 현재 줄) 이후부터 갱신하는 것이다.
+// 간단한 분기를 작성하고 이전 문단으로부터 현재 문단의 시작 오프셋을 찾아 줄 정보를 갱신한다.
+// GetRowAndColumn 함수는 행열 값을 구할 때 lineInfo를 참조하는데 RebuildLineInfo 함수가 lineInfo를 갱신하는 함수이다.
+// 즉, 현재 줄 정보를 만들고 있는 와중에 lineInfo를 참조하는 함수를 호출한 것이다.
+// 메모리를 잘못 건드릴 가능성이 있으므로 FindParagraphStart 함수로 찾은 문단의 시작 오프셋(paraStart)에
+// CLRF 길이(2)만큼 빼서 이전 줄의 오프셋을 GetRowAndColumn 인수로 전달한다.
+// 즉, 이전 줄의 row 값을 구해온 다음 여기에 1만큼 더하여 현재 문단의 줄 번호를 구해오는 것이다. 
+
+
 LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam);
     int y = GET_Y_LPARAM(lParam);
@@ -1883,7 +1893,7 @@ BOOL Insert(int idx, WCHAR* str) {
         bLineEnd = FALSE;
     }
 
-    RebuildLineInfo();
+    RebuildLineInfo(idx, wcslen(str));
     UpdateScrollInfo();
     return TRUE;
 }
@@ -1895,7 +1905,7 @@ BOOL Delete(int idx, int cnt) {
     memmove(buf + idx, buf + idx + cnt, move * sizeof(WCHAR));
     docLength -= cnt;
 
-    RebuildLineInfo();
+    RebuildLineInfo(idx, -cnt);
     UpdateScrollInfo();
     return TRUE;
 }
@@ -2168,7 +2178,16 @@ int WordBreakProc(int pos, int start, WBPType type) {
 void RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */) {
     int curLine = 0, pos = 0, wrapEnd = 0;
     int start = 0, end = 0;
+    int paraStart = 0;
     WCHAR* ptr = buf;
+
+    if (idx != -1) {
+        paraStart = FindParagraphStart(idx);
+        if (paraStart > 0) {
+            GetRowAndColumn(paraStart - 2, curLine, end);
+            curLine++;
+        }
+    }
 
     while (1) {
         if (curLine >= lineCount) {
