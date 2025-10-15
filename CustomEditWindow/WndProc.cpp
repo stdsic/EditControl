@@ -795,7 +795,17 @@ void RebuildLineInfo(int idx = -1, int length = -1);
 // 삭제된 줄은 갱신하고 이전 줄 정보로부터 삭제된 줄의 다음 줄 정보를 가져와 재사용한다.
 // 삽입이나 삭제나 둘다 문자 길이만큼 오프셋을 조정하면 완벽하게 처리된다.
 
-
+// 가장 까다로운 문단 병합/분리 문제를 보자.
+// 개행코드의 삽입/삭제로 인해 문단이 병합되거나 분리될 수 있다.
+//                                                                                                          ↓문자 삽입("CRLF")
+// "■■ ■■■■ ■■ ■■■■■ ■■ ■■■■ ■■■■"      CRLF    ->      "■■ ■■■■ ■■ ■■■■■"                          CLRF
+//                                                                             " ■■ ■■■■ ■■■■"                                CRLF
+// "■■ ■■■■ ■■ ■■■■■ ■■ ■■■■ ■■■■"      CRLF    ->      "■■ ■■■■ ■■ ■■■■■ ■■ ■■■■ ■■■■"   CRLF
+//
+// 개행코드도 결국엔 문자 코드라는 점만 분명히하면 헷갈릴 게 없다.
+// CRLF의 삽입은 새로운 문단이 추가되는 것 뿐이고 삭제는 기존에 있던 문단에 뒷 문단을 이어붙이는 것 뿐이다.
+// 무슨짓을 해도 개행코드의 삽입/삭제로 인해 편집되는 줄은 딱 하나 뿐이다. 그래서 이전 줄 정보를 그대로 재활용할 수 있다.
+// 이제 코드를 작성해보자.
 
 LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     int x = GET_X_LPARAM(lParam);
@@ -2239,7 +2249,9 @@ void RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */) {
     int paraStart = 0;
     WCHAR* ptr = buf;
 
-    if (idx != -1) {
+    BOOL bAll = (idx == -1);
+
+    if (!bAll) {
         paraStart = FindParagraphStart(idx);
         if (paraStart > 0) {
             GetRowAndColumn(paraStart - 2, curLine, end);
@@ -2258,6 +2270,11 @@ void RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */) {
 
         lineInfo[curLine].start = start;
         lineInfo[curLine].end = end;
+        
+        // 코드 작성 필요, 기본 분기 작성
+        if (idx != -1 && idx < end && lineInfo[curLine].start != -1) {
+            
+        }
 
         if (start == -1) { lineCount = curLine; break; }
         curLine++;
