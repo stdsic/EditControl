@@ -1627,7 +1627,7 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
         DrawLine(hMemDC, Line);
 
         // 줄 단위 더블 버퍼링 구조로 작성
-        BitBlt(hdc, 0, (Line - Top) * LineHeight, g_crt.right, (Line - Top) * LineHeight + LineHeight, hMemDC, 0, 0, SRCCOPY);
+        BitBlt(hdc, 0, (Line - Top) * LineHeight, g_crt.right, LineHeight, hMemDC, 0, 0, SRCCOPY);
     }
 
     // 남은 여백
@@ -2247,6 +2247,7 @@ void RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */) {
     int curLine = 0, pos = 0, wrapEnd = 0;
     int start = 0, end = 0;
     int paraStart = 0;
+    int prevStart = -1, prevEnd = -1;
     WCHAR* ptr = buf;
 
     BOOL bAll = (idx == -1);
@@ -2260,21 +2261,130 @@ void RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */) {
     }
 
     while (1) {
-        if (curLine >= lineCount) {
-            lineCount += 0x400;
-            lineInfo = (LineInfo*)realloc(lineInfo, sizeof(LineInfo) * lineCount);
+        if (curLine >= lineInfoSize) {
+            // lineCount -> lineInfoSize : 오타 수정
+            lineInfoSize += 0x400;
+            lineInfo = (LineInfo*)realloc(lineInfo, sizeof(LineInfo) * lineInfoSize);
             if (lineInfo == NULL) { return; }
-            memset(lineInfo + (lineCount - 0x400), 0, sizeof(LineInfo) * 0x400);
+            memset(lineInfo + (lineInfoSize - 0x400), -1, sizeof(LineInfo) * 0x400);
         }
         GetLine(curLine, start, end);
 
+        // 앞에서 문단의 시작 오프셋을 반환하면 이 오프셋을 GetLine으로 넘겨 문단의 첫 줄부터 start, end 오프셋을 가져온다.
+        // idx < end 조건은 앞 줄을 건너뛰고 현재 줄을 찾는 조건식이다.
+        // 편집이 발생한 idx 값보다 end 값이 작은 경우에는 굳이 볼 필요 없는 줄(전방 줄)이므로 그냥 건너뛴다.
+        // 이때, idx < end 조건은 또 하나의 처리를 하는데 start와 end가 -1로 초기화되는 경우, 즉 문서의 끝(마지막 줄)인 경우도 자연스럽게 처리한다.
+        
+        // lineInfo[curLine].start != -1 조건식은 realloc에 의해 새로 할당된 줄을 간소화 범위에서 제외한다.
+        // 새로 할당된 줄은 정렬되지 않은 상태인데 이를 간소화한다는건 말이 안된다.
+        // 간소화 범위에서 제외하기 위해선 특이값이 필요하므로 memset 호출문의 두 번째 인수를 0에서 -1로 변경했다.
+
+        if (!bAll && idx < end && lineInfo[curLine].start != -1) {
+            // 1번 패턴 : 한 줄 내에서 편집이 발생한 경우
+            // 현재 줄은 건너뛰고 다음 줄부터 length만큼 오프셋 증감
+            int i = curLine;
+            if (lineInfo[curLine].start + length == start && lineInfo[curLine].end + length == end) {
+                while (lineInfo[i].start != -1) {
+                    lineInfo[i].start += length;
+                    lineInfo[i].end += length;
+                    i++;
+                }
+                break;
+            }
+
+            // 3번 패턴 : 삭제로 인해 전체 줄 개수가 줄어든 경우
+            // 글로 쓰려니 좀 복잡한데, 이전에 만들어둔 줄 정보에서 편집되어 변화가 생긴 줄(curLine)의 뒷줄 정보(curLine + 1)를 가져온다.
+            // 이때 뒷줄 정보와 GetLine으로 가져온 start, end 값, 즉 현재 정렬한 결과가 서로 같다면 중간에 있던 한 줄이 사라진 것이다.
+            
+            // 그림을 다시 보면서 되짚어보자.
+            //                                                                                            ↓문자 삭제("■■■ ")
+            // "■■ ■■■■ ■■■ ■■ ■■■■■ ■■ ■■■■ "       WRAP    ->      "■■ ■■■■ ■■ ■■■■■ ■■ ■■■■ ■■■■"   CRLF     (0, 29  -> 0, 29)
+            // "■■■■"                                                  CRLF    ->                                                                        (29, 33 -> NULL)
+            // "■■ ■■■■ ■■ ■■■■■ ■■ ■■■■ ■■■■"      CRLF    ->      "■■ ■■■■ ■■ ■■■■■ ■■ ■■■■ ■■■■"   CRLF     (33, 62 -> 29, 58) ↑ 이 줄이 위로 올라가고 curLine인 상태
+            
+            // 위 그림에서 curLine은 오른쪽 그림의 두 번째 줄이다.
+            // 즉, 편집이 발생하여 변화가 생긴 줄에서 다음 예외 분기를 만족하고 아래 구문이 실행된다.
+            // 이전 줄 정보에서 curLine + 1을 참조하면 왼쪽 그림에서 세 번째 줄의 정보(33, 62)를 가져온다.
+            // 이 값에 삭제된 문자("■■■ ")의 개수 4만큼 빼면 변화가 생긴 줄 curLine(29, 58)의 정보와 완전히 동일하다는 것을 알 수 있다.
+            // 이 줄을 찾은 다음에는 이후의 줄에 똑같이 length만큼 오프셋 증감을 적용하면 간소화가 완료된다.
+            if (lineInfo[curLine + 1].start + length == start && lineInfo[curLine + 1].end + length == end) {
+                while (1) {
+                    if (lineInfo[i + 1].start == -1) {
+                        lineInfo[i].start = -1;
+                        break;
+                    }
+
+                    lineInfo[i].start = lineInfo[i + 1].start + length;
+                    lineInfo[i].end = lineInfo[i + 1].end + length;
+                    i++;
+                }
+
+                lineCount -= 1;
+                break;
+            }
+
+            // 마지막으로 2번 패턴인데 이건 좀 까다롭다.
+            // 이전 줄 정보에서 curLine - 1, 즉 앞 줄 정보를 가져와야 하는데 이 정보가 파괴되기 때문이다.
+            // 다행히 딱 한 줄의 정보만 필요하기 때문에 임시 변수 한쌍으로 해결할 수 있다.
+
+            // 다시 예시를 보자.                                                                                              ↓ 문자 삽입("■■■ ")
+            // "■■ ■■■■ ■■ ■■■■■ ■■ ■■■■ ■■■■"                          CRLF    ->      "■■ ■■■■ ■■■ ■■ ■■■■■ ■■ ■■■■ "    WRAP     (0, 29  -> 0, 29)
+            //                                                                                         ->      "■■■■"                                               CRLF     (NULL   -> 29, 33)
+            // "■■ ■■■■ ■■ ■■■■■ ■■ ■■■■ ■■■■" ↑원래 2번줄(29, 58)     CRLF    ->      "■■ ■■■■ ■■ ■■■■■ ■■ ■■■■ ■■■■"   CRLF     (29, 58 -> 33, 62) 
+
+            // 우선 순서를 파악하는게 중요하다. 앞에 있는 예외 분기는 조건이 명확하여 2번 패턴의 분기를 작성할 때는 신경쓸 필요가 없다.
+            // 즉, 현재 상황에만 집중하란 얘기다.
+            
+            // curLine부터 명확히 하자.
+            // 아래 분기가 시작되는 시점에 curLine은 오른쪽 그림의 세 번째 줄이다.
+            
+            // 이때 이전 줄 정보에서 curLine - 1 행의 줄 정보를 조사하면 왼쪽 그림에서 두 번째 줄의 정보(29, 58)를 가져온다.
+            // 헷갈릴 수 있는데, 왼쪽 그림은 사실 줄이 두 개뿐인 것이지만 설명을 위해 빈 줄(NULL)을 추가하여 물리적인 줄이 있는 것처럼 그려놨다.
+            // 3번 패턴에서는 줄이 있다가 사라진거라 어색하지 않았는데 2번 패턴은 원래 없던 줄을 있는 것처럼 끼워놓은 상태라 어색한 부분이 있다.
+            
+            // 이전 줄 정보에서 curLine - 1 행의 값을 가져오려고 보니, 직전의 루프에서 줄 정보가 갱신되어 버렸다.
+            // 즉, 값이 파괴되어 조사할 수 없는 상태인 것이다.
+            // 이러한 이유로 prevStart와 prevEnd 임시 변수가 필요해졌으며 줄 정보를 갱신하는 코드 직전에 대입문을 작성해뒀다.
+            
+            // 위 예시에서 prevStart와 prevEnd는 각각 29, 58의 값을 가진다.
+            // 여기에 삽입된 문자("■■■ ") 길이만큼 더하면 현재 조사된 줄 정보 start, end와 같다는 것을 알 수 있다. 
+            // 곧, 이전 줄 정보(29, 58)에 삽입된 문자열의 길이(4)만큼 더했을 때
+            // 현재 조사한 줄 정보(33, 62)와 그 값이 같다면 중간에 줄이 추가된 것이다.
+
+            if (prevStart + length == start && prevEnd + length == end) {
+                // 
+                if (lineCount + 1 >= lineInfoSize) {
+                    lineInfoSize += 0x400;
+                    lineInfo = (LineInfo*)realloc(lineInfo, sizeof(LineInfo) * lineInfoSize);
+                    if (lineInfo != NULL) {
+                        memset(lineInfo + (lineInfoSize - 0x400), -1, sizeof(LineInfo) * 0x400);
+                    }
+                }
+
+                // lineCount는 문서에 작성되어 있는 마지막 줄의 번호이자 줄의 개수이다.
+                // lineCount + 1을 -1로 초기화 하여 문서의 마지막임을 알린다.
+                // 이렇게 해야 분기문을 피할 수 있다.
+                
+                // 그다음 마지막 줄부터 현재 편집되고 있는 줄까지 뒤에서부터 차례대로 정보를 갱신하는데
+                // 앞에서부터 차례대로 정보를 갱신하면 어떤 일이 벌어질지 설명안해도 알 것이다.
+                lineInfo[lineCount + 1].start = -1;
+                for (i = lineCount; i > curLine; i--) {
+                    lineInfo[i].start = lineInfo[i - 1].start + length;
+                    lineInfo[i].end = lineInfo[i - 1].end + length;
+                }
+
+                lineInfo[i].start = start;
+                lineInfo[i].end = end;
+                lineCount += 1;
+                break;
+            }
+        }
+
+        prevStart = lineInfo[curLine].start;
+        prevEnd = lineInfo[curLine].end;
+
         lineInfo[curLine].start = start;
         lineInfo[curLine].end = end;
-        
-        // 코드 작성 필요, 기본 분기 작성
-        if (idx != -1 && idx < end && lineInfo[curLine].start != -1) {
-            
-        }
 
         if (start == -1) { lineCount = curLine; break; }
         curLine++;
