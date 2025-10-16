@@ -998,6 +998,7 @@ LRESULT OnContextMenu(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     return 0;
 }
+
 LRESULT OnHScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     SCROLLINFO si;
     int increase = 0;
@@ -1082,6 +1083,7 @@ LRESULT OnVScroll(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     return 0;
 }
+
 LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     HGLOBAL hMem;
     WCHAR* ptr;
@@ -1483,6 +1485,7 @@ LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     return 0;
 }
+
 LRESULT OnKeyUp(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     return 0;
