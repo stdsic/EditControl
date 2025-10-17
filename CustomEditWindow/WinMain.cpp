@@ -1,5 +1,7 @@
 ﻿#include "pch.h"
-#define CLASS_NAME L"MakeApiEdit"
+#include "CustomEditWindow.h"
+#define CLASS_NAME L"MyEditClassTest"
+#define IDC_EDIT1 0x4001
 
 //LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam);
 //LRESULT OnTimer(HWND hWnd, WPARAM wParam, LPARAM lParam);
@@ -67,9 +69,14 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
     return (int)msg.wParam;
 }
 
+CustomEditWindow g_EditWindow;
 LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam) {
+    RECT crt;
+
     switch (iMessage) {
     case WM_CREATE:
+        GetClientRect(hWnd, &crt);
+        g_EditWindow.Create(L"MyEditWindow", WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL, 0, crt.left, crt.top, crt.right, crt.bottom, hWnd, (HMENU)(INT_PTR)IDC_EDIT1);
         return 0;
 
     case WM_DESTROY:

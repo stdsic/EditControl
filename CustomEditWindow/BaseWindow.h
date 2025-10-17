@@ -13,7 +13,7 @@ public:
 		if (iMessage == WM_NCCREATE) {
 			CREATESTRUCT* pCS = (CREATESTRUCT*)lParam;
 			ptr = (DERIVED_TYPE*)pCS->lpCreateParams;
-			SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG_PTR)ptr);
+			SetWindowLongPtr(_hWnd, GWLP_USERDATA, (LONG_PTR)ptr);
 			ptr->hWnd = _hWnd;
 		}
 		else {
