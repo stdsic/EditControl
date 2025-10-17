@@ -1,7 +1,34 @@
 ﻿#include "pch.h"
 #define CLASS_NAME L"MakeApiEdit"
 
+//LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnTimer(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnSize(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnKeyUp(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnChar(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnImeChar(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnImeComposition(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//
+//LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnMouseMove(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnLButtonUp(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnSetFocus(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnKillFocus(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnMouseWheel(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnSetCursor(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnContextMenu(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnHScroll(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnVScroll(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnDestroy(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//
+//LRESULT OnWindowPosChanged(HWND hWnd, WPARAM wParam, LPARAM lParam);
+//LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam);
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam);
+
 int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
     WNDCLASS wc = {
         CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
@@ -53,31 +80,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hWnd, iMessage, wParam, lParam);
 }
 
-//LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnTimer(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnSize(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnKeyDown(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnKeyUp(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnChar(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnImeChar(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnImeComposition(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//
-//LRESULT OnLButtonDown(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnMouseMove(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnLButtonUp(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnSetFocus(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnKillFocus(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnMouseWheel(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnSetCursor(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnContextMenu(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnHScroll(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnVScroll(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnDestroy(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//
-//LRESULT OnWindowPosChanged(HWND hWnd, WPARAM wParam, LPARAM lParam);
-//LRESULT OnLButtonDblClk(HWND hWnd, WPARAM wParam, LPARAM lParam);
 
 //LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam) {
 //    switch (iMessage) {
