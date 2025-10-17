@@ -1625,7 +1625,7 @@ LRESULT OnPaint(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     RECT lrt;
     SetRect(&lrt, 0, 0, g_crt.right, LineHeight);
 
-    for (Line = Top; Line <= Bottom; Line++) {
+    for (Line = Start; Line <= Bottom; Line++) {
         FillRect(hMemDC, &lrt, hBrush);
         DrawLine(hMemDC, Line);
 
@@ -2782,7 +2782,7 @@ Paragraph FindParagraphRange(int idx) {
 }
 
 int FindParagraphStart(int idx) {
-    int paraStart = idx;
+    int paraStart = idx - 1;
 
     while (paraStart > 0 && !IsCRLF(paraStart)) { paraStart--; }
     if (paraStart > 0) { paraStart += 2; }
