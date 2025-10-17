@@ -1029,6 +1029,7 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
         wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
         // wcscpy_s(buf, bufLength, L"동해물과 백두산이 마르고 닳도록 하느님이 보우하사\r\nabcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz\r\n우리나라 만세 무궁화 삼천리 화려 강산 대한 사람 대한으로 길이 보전하세");
         docLength = wcslen(buf);
+        off = docLength;
     }
     else {
         return -1;
@@ -1531,8 +1532,9 @@ void CustomEditWindow::RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */
         if (!bAll && idx < end && lineInfo[curLine].start != -1) {
             // 1번 패턴 : 한 줄 내에서 편집이 발생한 경우
             // 현재 줄은 건너뛰고 다음 줄부터 length만큼 오프셋 증감
-            int i = curLine;
+            int i = 0;
             if (lineInfo[curLine].start + length == start && lineInfo[curLine].end + length == end) {
+                i = curLine;
                 while (lineInfo[i].start != -1) {
                     lineInfo[i].start += length;
                     lineInfo[i].end += length;
@@ -1557,6 +1559,7 @@ void CustomEditWindow::RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */
             // 이 값에 삭제된 문자("■■■ ")의 개수 4만큼 빼면 변화가 생긴 줄 curLine(29, 58)의 정보와 완전히 동일하다는 것을 알 수 있다.
             // 이 줄을 찾은 다음에는 이후의 줄에 똑같이 length만큼 오프셋 증감을 적용하면 간소화가 완료된다.
             if (lineInfo[curLine + 1].start + length == start && lineInfo[curLine + 1].end + length == end) {
+                i = curLine;
                 while (1) {
                     if (lineInfo[i + 1].start == -1) {
                         lineInfo[i].start = -1;
@@ -1617,13 +1620,13 @@ void CustomEditWindow::RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */
                 // 그다음 마지막 줄부터 현재 편집되고 있는 줄까지 뒤에서부터 차례대로 정보를 갱신하는데
                 // 앞에서부터 차례대로 정보를 갱신하면 어떤 일이 벌어질지 설명안해도 알 것이다.
                 lineInfo[lineCount + 1].start = -1;
-                for (i = lineCount; i > curLine; i--) {
+                for (i = lineCount; i >= curLine; i--) {
                     lineInfo[i].start = lineInfo[i - 1].start + length;
                     lineInfo[i].end = lineInfo[i - 1].end + length;
                 }
 
-                lineInfo[i].start = start;
-                lineInfo[i].end = end;
+                lineInfo[curLine].start = start;
+                lineInfo[curLine].end = end;
                 lineCount += 1;
                 break;
             }
@@ -1635,7 +1638,11 @@ void CustomEditWindow::RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */
         lineInfo[curLine].start = start;
         lineInfo[curLine].end = end;
 
-        if (start == -1) { lineCount = curLine; break; }
+        if (start == -1) { 
+            lineCount = curLine;
+            break;
+        }
+
         curLine++;
     }
 }
