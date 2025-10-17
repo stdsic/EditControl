@@ -111,7 +111,7 @@ LRESULT CustomEditWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
     RECT lrt;
     SetRect(&lrt, 0, 0, g_crt.right, LineHeight);
 
-    for (Line = Top; Line <= Bottom; Line++) {
+    for (Line = Start; Line <= Bottom; Line++) {
         FillRect(hMemDC, &lrt, hBrush);
         DrawLine(hMemDC, Line);
 
@@ -267,7 +267,7 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
             }
             else {
                 if (off == start) {
-                    if (buf[GetPrevOffset(off)] == '\r') {
+                    if (buf[GetPrevOffset(off)] == L'\r') {
                         off = GetPrevOffset(off);
                         bLineEnd = FALSE;
                     }
@@ -309,14 +309,14 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
             }
             else {
                 if (off == end) {
-                    if (buf[end] == '\r') {
+                    if (buf[end] == L'\r') {
                         off = GetNextOffset(off);
                     }
                     bLineEnd = FALSE;
                 }
                 else {
                     off = GetNextOffset(off);
-                    if (off == end && buf[off] != '\r') {
+                    if (off == end && buf[off] != L'\r') {
                         bLineEnd = TRUE;
                     }
                     else {
@@ -374,7 +374,7 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
                 start = lineInfo[row].start;
                 end = lineInfo[row].end;
 
-                if (column > 0 && off == end && buf[off] != '\r') {
+                if (column > 0 && off == end && buf[off] != L'\r') {
                     bLineEnd = FALSE;
                     Delete(off, 1);
                 }
@@ -453,7 +453,7 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
             off = GetOffset(row, 2147483647);
         }
 
-        if (buf[off] != '\r' && buf[off] != 0) {
+        if (buf[off] != L'\r' && buf[off] != 0) {
             bLineEnd = TRUE;
         }
 
@@ -544,11 +544,11 @@ LRESULT CustomEditWindow::OnChar(WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
-    if ((ch < ' ' /* 제어코드(~32) */ && ch != '\r' && ch != '\t') || ch == 127 /* Ctrl + BS */) { return 0; }
+    if ((ch < L' ' /* 제어코드(~32) */ && ch != L'\r' && ch != L'\t') || ch == 127 /* Ctrl + BS */) { return 0; }
 
-    if (ch == '\r') {
-        Abuf[0] = '\r';
-        Abuf[1] = '\n';
+    if (ch == L'\r') {
+        Abuf[0] = L'\r';
+        Abuf[1] = L'\n';
         Abuf[2] = 0;
     }
     else {
@@ -943,7 +943,10 @@ LRESULT CustomEditWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
             SelectSecond = max(SelectStart, SelectEnd);
             hMem = GlobalAlloc(GHND, sizeof(WCHAR) * (SelectSecond - SelectFirst + 1));
             ptr = (WCHAR*)GlobalLock(hMem);
-            memcpy(ptr, buf + SelectFirst, sizeof(WCHAR) * (SelectSecond - SelectFirst));
+            if (SelectSecond <= bufLength) {
+                memcpy(ptr, buf + SelectFirst, sizeof(WCHAR) * (SelectSecond - SelectFirst));
+            }
+            // memcpy(ptr, buf + SelectFirst, sizeof(WCHAR) * (SelectSecond - SelectFirst));
             GlobalUnlock(hMem);
             if (OpenClipboard(hWnd)) {
                 EmptyClipboard();
@@ -960,6 +963,7 @@ LRESULT CustomEditWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
             OpenClipboard(hWnd);
             hMem = GetClipboardData(CF_TEXT);
             ptr = (WCHAR*)GlobalLock(hMem);
+            if(bufLength + wcslen(ptr) + 1)
             Insert(off, ptr);
             GlobalUnlock(hMem);
             CloseClipboard();
@@ -994,7 +998,7 @@ LRESULT CustomEditWindow::OnWindowPosChanged(WPARAM wParam, LPARAM lParam) {
 LRESULT CustomEditWindow::OnGetDlgCode(WPARAM wParam, LPARAM lParam) {
     LPMSG lpMsg = (LPMSG)lParam;
     if (lpMsg) {
-        if (lpMsg->message == WM_KEYDOWN && lpMsg->wParam == '\t' && bWantTab == FALSE) { return 0; }
+        if (lpMsg->message == WM_KEYDOWN && lpMsg->wParam == L'\t' && bWantTab == FALSE) { return 0; }
     }
 
     return DLGC_WANTARROWS | DLGC_WANTTAB | DLGC_WANTALLKEYS | DLGC_WANTCHARS;
@@ -1007,7 +1011,7 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
 
     Sum = 0;
     bWantTab = TRUE;
-    bufLength = 0x400;
+    bufLength = 0x4000;
     docLength = 0;
     off = 0;
     bLineEnd = FALSE;
@@ -1016,7 +1020,7 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
     PrevX = 0;
     HangulCharWidth = 0;
     xMax = 0x400;
-    yMax = 0x400;
+    yMax = 0;
     xPos = yPos = 0;
     SelectStart = SelectEnd = 0;
     bCapture = FALSE;
@@ -1026,10 +1030,9 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     if (buf != NULL) {
         memset(buf, 0, sizeof(WCHAR) * bufLength);
-        wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
-        // wcscpy_s(buf, bufLength, L"동해물과 백두산이 마르고 닳도록 하느님이 보우하사\r\nabcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz\r\n우리나라 만세 무궁화 삼천리 화려 강산 대한 사람 대한으로 길이 보전하세");
-        docLength = wcslen(buf);
-        off = docLength;
+        // wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
+        
+        docLength = off = 0;
     }
     else {
         return -1;
@@ -1047,7 +1050,7 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
     PrecomputeCharWidths();
 
     TabWidth = 4;
-    TabSize = AsciiCharWidth[' '] * TabWidth;
+    TabSize = AsciiCharWidth[L' '] * TabWidth;
 
     LineRatio = 120;
     LineHeight = (int)(FontHeight * LineRatio / 100);
@@ -1154,7 +1157,7 @@ int CustomEditWindow::GetCharWidth(WCHAR* src, int length) {
     for (int i = 0; i < length; i++) {
         ch = (int)(*(src + i));
         if (ch < 128) {
-            if (ch == '\t') {
+            if (ch == L'\t') {
                 width = (width / TabSize + 1) * TabSize;
             }
             else {
@@ -1192,7 +1195,7 @@ BOOL CustomEditWindow::Insert(int idx, WCHAR* str) {
 
     // bLineEnd = FALSE;
     if (g_Option.wordWrap) {
-        if (column > 0 && end == idx && buf[idx] != '\r' && bAlphaNum) {
+        if (column > 0 && end == idx && buf[idx] != L'\r' && bAlphaNum) {
             // 한글같은 조립형 문자의 경우 IME가 자동으로 캐럿 위치를 조정해준다.
             // 알파벳은 이러한 보정이 없으므로 직접 조정해야 한다
             bLineEnd = TRUE;
@@ -1215,6 +1218,7 @@ BOOL CustomEditWindow::Insert(int idx, WCHAR* str) {
 }
 
 BOOL CustomEditWindow::Delete(int idx, int cnt) {
+    if (cnt == 0) { return FALSE; }
     if (docLength < idx + cnt) { return FALSE; }
 
     int move = docLength - idx - cnt + 1;
@@ -1227,7 +1231,7 @@ BOOL CustomEditWindow::Delete(int idx, int cnt) {
 }
 
 BOOL CustomEditWindow::IsCRLF(int idx) {
-    if (buf[idx] == '\r' && buf[idx + 1] == '\n') {
+    if (buf[idx] == L'\r' && buf[idx + 1] == L'\n') {
         return TRUE;
     }
     return FALSE;
@@ -1257,7 +1261,7 @@ void CustomEditWindow::GetLine(int line, int& start, int& end) {
             return;
         }
 
-        if (ptr[prevEnd] == '\r') {
+        if (ptr[prevEnd] == L'\r') {
             lineStart = prevEnd + 2;
         }
         else {
@@ -1269,7 +1273,7 @@ void CustomEditWindow::GetLine(int line, int& start, int& end) {
 
     while (1) {
         WCHAR ch = ptr[lineEnd];
-        if (ch == '\r' || ch == 0) { break; }
+        if (ch == L'\r' || ch == 0) { break; }
         lineEnd++;
     }
 
@@ -1315,7 +1319,7 @@ void CustomEditWindow::GetRowAndColumn(int idx, int& row, int& column) {
         }
 
         if (idx == end) {
-            if (ptr[end] == 0 || ptr[end] == '\r') {
+            if (ptr[end] == 0 || ptr[end] == L'\r') {
                 break;
             }
         }
@@ -1350,7 +1354,7 @@ void CustomEditWindow::GetCoordinate(int idx, int& x, int& y) {
 
     WCHAR* ptr = buf + start;
     while (ptr != buf + idx) {
-        if (*ptr == '\t') {
+        if (*ptr == L'\t') {
             // Tabsize;
             x = (x / TabSize + 1) * TabSize;
         }
@@ -1658,7 +1662,7 @@ int CustomEditWindow::GetDocsXPosOnLine(int row, int dest) {
 
     int Width = 0, len = 0;
     while (ptr - buf < end) {
-        if (*ptr == '\t') {
+        if (*ptr == L'\t') {
             Width = (Width / TabSize + 1) * TabSize;
         }
         else {
@@ -1670,7 +1674,7 @@ int CustomEditWindow::GetDocsXPosOnLine(int row, int dest) {
     }
 
     int ret = ptr - buf;
-    if (ret == end && buf[ret] != '\r' && buf[ret] != 0) {
+    if (ret == end && buf[ret] != L'\r' && buf[ret] != 0) {
         bLineEnd = TRUE;
     }
     else {
@@ -1749,7 +1753,7 @@ int CustomEditWindow::DrawLine(HDC hdc, int line) {
     while (1) {
         length = 0;
         while (1) {
-            if (buf[idx + length] == '\t') {
+            if (buf[idx + length] == L'\t') {
                 if (length == 0) { length = 1; }
                 if (SelectStart != SelectEnd && idx >= SelectFirst && idx < SelectSecond) {
                     bInSelect = TRUE;
@@ -1814,7 +1818,7 @@ void CustomEditWindow::DrawSegment(HDC hdc, int& x, int y, int idx, int length, 
     // 탭 사이즈를 구하는 공식이 무효해진다.
     // 따라서, x를 화면상의 좌표로 받아 간단히 출력하되
     // 탭 문자를 만난 경우에는 공식을 적용하기 위해 문서상의 좌표로 변환하고 다시 화면 좌표로 되돌려야 한다.
-    if (buf[idx] == '\t') {
+    if (buf[idx] == L'\t') {
         oldx = x;
         docx = x + xPos;
         docx = (docx / TabSize + 1) * TabSize;
@@ -1851,7 +1855,6 @@ void CustomEditWindow::DrawSegment(HDC hdc, int& x, int y, int idx, int length, 
         SetTextColor(hdc, fg);
         SetBkColor(hdc, bg);
         TextOut(hdc, x, y, buf + idx, length);
-
         if (ignore == FALSE) {
             x += GetCharWidth(buf + idx, length);
         }
@@ -1876,7 +1879,7 @@ int CustomEditWindow::GetOffsetFromPoint(int x, int y) {
 
     WCHAR* ptr = buf + start;
     while (ptr - buf < end) {
-        if (*ptr == '\t') {
+        if (*ptr == L'\t') {
             chWidth = (acWidth / TabSize + 1) * TabSize - acWidth;
         }
         else {
@@ -1891,7 +1894,7 @@ int CustomEditWindow::GetOffsetFromPoint(int x, int y) {
     }
 
     int ret = ptr - buf;
-    if (ret == end && buf[ret] != '\r' && buf[ret] != 0) {
+    if (ret == end && buf[ret] != L'\r' && buf[ret] != 0) {
         bLineEnd = TRUE;
     }
     else {
@@ -2014,7 +2017,7 @@ void CustomEditWindow::Invalidate(int idx1, int idx2 /* = -1 */) {
 }
 
 int CustomEditWindow::FindParagraphStart(int idx) {
-    int paraStart = idx;
+    int paraStart = idx - 1;
 
     while (paraStart > 0 && !IsCRLF(paraStart)) { paraStart--; }
     if (paraStart > 0) { paraStart += 2; }
