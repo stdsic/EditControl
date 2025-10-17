@@ -1011,7 +1011,7 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
 
     Sum = 0;
     bWantTab = TRUE;
-    bufLength = 0x4000;
+    bufLength = 0x10000;
     docLength = 0;
     off = 0;
     bLineEnd = FALSE;
@@ -1030,9 +1030,9 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     if (buf != NULL) {
         memset(buf, 0, sizeof(WCHAR) * bufLength);
-        // wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
+        wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
         
-        docLength = off = 0;
+        docLength = off = wcslen(buf);
     }
     else {
         return -1;
@@ -1175,6 +1175,7 @@ BOOL CustomEditWindow::Insert(int idx, WCHAR* str) {
     int length = wcslen(str);
     if (length == 0) { return FALSE; }
 
+    // TODO: 버퍼 오버런 발생
     int Needed = docLength + length + 1;
     if (Needed > bufLength) {
         bufLength = Needed + 0x400;
@@ -1221,9 +1222,11 @@ BOOL CustomEditWindow::Delete(int idx, int cnt) {
     if (cnt == 0) { return FALSE; }
     if (docLength < idx + cnt) { return FALSE; }
 
-    int move = docLength - idx - cnt + 1;
+    // int move = docLength - idx - cnt + 1;
+    int move = docLength - idx - cnt;
     memmove(buf + idx, buf + idx + cnt, move * sizeof(WCHAR));
     docLength -= cnt;
+    buf[docLength] = 0;
 
     RebuildLineInfo(idx, -cnt);
     UpdateScrollInfo();
@@ -1854,6 +1857,8 @@ void CustomEditWindow::DrawSegment(HDC hdc, int& x, int y, int idx, int length, 
 
         SetTextColor(hdc, fg);
         SetBkColor(hdc, bg);
+
+        // TODO: 버퍼 오버런 발생 -> 수정 필요
         TextOut(hdc, x, y, buf + idx, length);
         if (ignore == FALSE) {
             x += GetCharWidth(buf + idx, length);
