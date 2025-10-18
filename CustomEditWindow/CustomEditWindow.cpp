@@ -578,7 +578,7 @@ LRESULT CustomEditWindow::OnImeChar(WPARAM wParam, LPARAM lParam) {
     Wbuf[1] = 0;
 
     if (bComp) {
-        off -= 2;
+        off -= 1;
         Delete(off, 1);
     }
 
@@ -592,7 +592,7 @@ LRESULT CustomEditWindow::OnImeChar(WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT CustomEditWindow::OnImeComposition(WPARAM wParam, LPARAM lParam) {
-    int Length = 0;
+    int bytes = 0, Length = 0;
     HIMC hImc = NULL;
     WCHAR* Cbuf = NULL;
 
@@ -613,18 +613,24 @@ LRESULT CustomEditWindow::OnImeComposition(WPARAM wParam, LPARAM lParam) {
             }
         }
 
-        Length = ImmGetCompositionString(hImc, GCS_COMPSTR, NULL, 0);
-        Cbuf = (WCHAR*)malloc(sizeof(WCHAR) * (Length + 1));
-        memset(Cbuf, 0, sizeof(WCHAR) * (Length + 1));
-        ImmGetCompositionString(hImc, GCS_COMPSTR, Cbuf, Length);
+        // ImmGetCompositionString 함수가 반환하는 값은 문자열의 길이가 아니라 바이트 수이다.
+        // 이를 헷갈려 Length로 취급했는데 이를 고려하여 로직을 수정해야 한다.
+        bytes = ImmGetCompositionString(hImc, GCS_COMPSTR, NULL, 0);
+
+        // 널 문자 고려, 2바이트 추가
+        Cbuf = (WCHAR*)malloc(bytes + sizeof(WCHAR));
+        memset(Cbuf, 0, bytes);
+        ImmGetCompositionString(hImc, GCS_COMPSTR, Cbuf, bytes);
+
+        Length = bytes / sizeof(WCHAR);
         Cbuf[Length] = 0;
 
         if (bComp) {
-            off -= 2;
+            off -= 1;
             Delete(off, 1);
         }
 
-        if (Length == 0) {
+        if (bytes == 0) {
             bComp = FALSE;
         }
         else {
@@ -636,6 +642,8 @@ LRESULT CustomEditWindow::OnImeComposition(WPARAM wParam, LPARAM lParam) {
         ImmReleaseContext(hWnd, hImc);
         free(Cbuf);
         Invalidate(FindParagraphStart(off - Length));
+
+        // TODO: 여기 SetCaret 호출 후 GetCoordinate 반복문에서 액세스 오류 발생
         SetCaret();
     }
 
@@ -1011,7 +1019,7 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
 
     Sum = 0;
     bWantTab = TRUE;
-    bufLength = 0x10000;
+    bufLength = 200;
     docLength = 0;
     off = 0;
     bLineEnd = FALSE;
@@ -1030,9 +1038,9 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     if (buf != NULL) {
         memset(buf, 0, sizeof(WCHAR) * bufLength);
-        wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
+        // wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
         
-        docLength = off = wcslen(buf);
+        // docLength = off = wcslen(buf);
     }
     else {
         return -1;
