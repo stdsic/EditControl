@@ -1858,7 +1858,12 @@ void CustomEditWindow::DrawSegment(HDC hdc, int& x, int y, int idx, int length, 
         SetTextColor(hdc, fg);
         SetBkColor(hdc, bg);
 
-        // TODO: 버퍼 오버런 발생 -> 수정 필요
+        // 버퍼 오버런의 이유를 찾았다.
+        // 정확히는 속도 문제이다.
+        // 메세지 드리븐 환경에서 입력이 빠르게 반복되면 같은 메세지나 이에 따른 함수가 똑같이 반복 호출된다.
+        // 콜백 함수인 WndProc은 운영체제에 의해 호출되는데 재진입 가능한 함수(Reentrant Function)이기 때문에
+        // 이전에 호출된 WndProc이 아직 처리되지 않은 상태에서 똑같은 메세지가 발생하면 동기적 처리가 불가능해 버퍼가 깨지는 상황이 발생할 수 있다.
+        // 고질적인 문제인데 이 부분은 어떻게 처리하면 좋을지 좀 더 고민해봐야겠다.
         TextOut(hdc, x, y, buf + idx, length);
         if (ignore == FALSE) {
             x += GetCharWidth(buf + idx, length);
