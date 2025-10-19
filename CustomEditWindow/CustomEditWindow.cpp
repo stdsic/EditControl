@@ -578,12 +578,13 @@ LRESULT CustomEditWindow::OnImeChar(WPARAM wParam, LPARAM lParam) {
     Wbuf[1] = 0;
 
     if (bComp) {
-        off -= 1;
-        Delete(off, 1);
+        buf[off - 1] = Wbuf[0];
+    }
+    else {
+        Insert(off, Wbuf);
+        off += wcslen(Wbuf);
     }
 
-    Insert(off, Wbuf);
-    off += wcslen(Wbuf);
     bComp = FALSE;
     Invalidate(FindParagraphStart(off - wcslen(Wbuf)));
     SetCaret();
@@ -625,20 +626,29 @@ LRESULT CustomEditWindow::OnImeComposition(WPARAM wParam, LPARAM lParam) {
         Length = bytes / sizeof(WCHAR);
         Cbuf[Length] = 0;
 
-        if (bComp) {
-            off -= 1;
-            Delete(off, 1);
-        }
+        // TraceFormat(L"bytes = %d, Length = %d\r\n", bytes, Length);
 
-        if (bytes == 0) {
-            bComp = FALSE;
+        if (bComp && Length != 0) {
+            buf[off - 1] = Cbuf[0];
         }
         else {
-            bComp = TRUE;
+            if (bComp) {
+                off -= 1;
+                Delete(off, 1);
+
+            }
+
+            if (bytes == 0) {
+                bComp = FALSE;
+            }
+            else {
+                bComp = TRUE;
+            }
+
+            Insert(off, Cbuf);
+            off += Length;
         }
 
-        Insert(off, Cbuf);
-        off += Length;
         ImmReleaseContext(hWnd, hImc);
         free(Cbuf);
         Invalidate(FindParagraphStart(off - Length));
@@ -951,10 +961,7 @@ LRESULT CustomEditWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
             SelectSecond = max(SelectStart, SelectEnd);
             hMem = GlobalAlloc(GHND, sizeof(WCHAR) * (SelectSecond - SelectFirst + 1));
             ptr = (WCHAR*)GlobalLock(hMem);
-            if (SelectSecond <= bufLength) {
-                memcpy(ptr, buf + SelectFirst, sizeof(WCHAR) * (SelectSecond - SelectFirst));
-            }
-            // memcpy(ptr, buf + SelectFirst, sizeof(WCHAR) * (SelectSecond - SelectFirst));
+            memcpy(ptr, buf + SelectFirst, sizeof(WCHAR) * (SelectSecond - SelectFirst));
             GlobalUnlock(hMem);
             if (OpenClipboard(hWnd)) {
                 EmptyClipboard();
@@ -1019,7 +1026,7 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
 
     Sum = 0;
     bWantTab = TRUE;
-    bufLength = 200;
+    bufLength = 100;
     docLength = 0;
     off = 0;
     bLineEnd = FALSE;
@@ -1098,7 +1105,7 @@ void CustomEditWindow::SetCaret(BOOL bUpdatePrevX, BOOL bScrollToCaret) {
     int toff, x, y;
     int caretWidth;
 
-    toff = bComp ? off - 2 : off;
+    toff = bComp ? off - 1 : off;
     caretWidth = bComp ? GetCharWidth(buf + toff, 1) : CARET_WIDTH;
 
     CreateCaret(hWnd, NULL, caretWidth, FontHeight);
@@ -1181,6 +1188,7 @@ int CustomEditWindow::GetCharWidth(WCHAR* src, int length) {
 
 BOOL CustomEditWindow::Insert(int idx, WCHAR* str) {
     int length = wcslen(str);
+    // TraceFormat(L"str = %s, wcslen = %d\r\n", str, length);
     if (length == 0) { return FALSE; }
 
     // TODO: 버퍼 오버런 발생
