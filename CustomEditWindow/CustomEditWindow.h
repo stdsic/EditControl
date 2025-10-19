@@ -119,7 +119,7 @@ private:
     };
     WrapOptions g_Option;
     enum WBPType { WBP_WORD, WBP_PUNCT };
-    RECT g_crt;
+    // RECT g_crt;
 
     // 줄 정보 관리 구조체
     struct LineInfo {

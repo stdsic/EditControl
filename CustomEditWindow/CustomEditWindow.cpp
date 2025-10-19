@@ -32,6 +32,8 @@ LRESULT CustomEditWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
 
     // HBITMAP bmp;
     // hBitmap->GetHBITMAP(Color(0, 0, 0, 0), &bmp);
+    RECT crt;
+    GetClientRect(hWnd, &crt);
 
     if (hBitmap == NULL) {
         // hBitmap = CreateCompatibleBitmap(hdc, g_crt.right, g_crt.bottom);
@@ -75,7 +77,7 @@ LRESULT CustomEditWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
 
         LPBITMAPINFOHEADER lpInfo = &bmi->bmiHeader;
         lpInfo->biSize = sizeof(BITMAPINFOHEADER);
-        lpInfo->biWidth = g_crt.right;
+        lpInfo->biWidth = crt.right;
 
         // biHeight 멤버의 값을 음수 값으로 지정한다.
         // 기본적으로 비트맵은 Bottom-up 방향의 포맷을 가지는데
@@ -109,18 +111,18 @@ LRESULT CustomEditWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
     Bottom = min(Bottom, lineCount - 1);
 
     RECT lrt;
-    SetRect(&lrt, 0, 0, g_crt.right, LineHeight);
+    SetRect(&lrt, 0, 0, crt.right, LineHeight);
 
     for (Line = Start; Line <= Bottom; Line++) {
         FillRect(hMemDC, &lrt, hBrush);
         DrawLine(hMemDC, Line);
 
         // 줄 단위 더블 버퍼링 구조로 작성
-        BitBlt(hdc, 0, (Line - Top) * LineHeight, g_crt.right, LineHeight, hMemDC, 0, 0, SRCCOPY);
+        BitBlt(hdc, 0, (Line - Top) * LineHeight, crt.right, LineHeight, hMemDC, 0, 0, SRCCOPY);
     }
 
     // 남은 여백
-    SetRect(&lrt, 0, (Line - Top) * LineHeight, g_crt.right, g_crt.bottom);
+    SetRect(&lrt, 0, (Line - Top) * LineHeight, crt.right, crt.bottom);
     FillRect(hdc, &lrt, hBrush);
     // 알파 블렌딩 
     // BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
@@ -156,7 +158,6 @@ LRESULT CustomEditWindow::OnTimer(WPARAM wParam, LPARAM lParam) {
 
 LRESULT CustomEditWindow::OnSize(WPARAM wParam, LPARAM lParam) {
     if (wParam != SIZE_MINIMIZED) {
-        GetClientRect(hWnd, &g_crt);
         if (g_Option.wordWrap || g_Option.KeepPunctWithWord) {
             RebuildLineInfo();
         }
@@ -184,14 +185,17 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
     bShift = ((GetKeyState(VK_SHIFT) & 0x8000) != 0);
     bCtrl = ((GetKeyState(VK_CONTROL) & 0x8000) != 0);
 
+    RECT crt;
+
     switch (wParam) {
     case VK_UP:
         if (bCtrl && bShift) { break; }
         GetRowAndColumn(off, row, column);
+        GetClientRect(hWnd, &crt);
         if (row > 0) {
             if (bCtrl) {
                 SendMessage(hWnd, WM_VSCROLL, SB_LINEUP, 0);
-                if (row != (g_crt.bottom + yPos) / LineHeight) { break; }
+                if (row != (crt.bottom + yPos) / LineHeight) { break; }
             }
             toff = off;
             row--;
@@ -468,8 +472,9 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
 
     case VK_PRIOR:
         GetRowAndColumn(off, row, column);
+        GetClientRect(hWnd, &crt);
         oldRow = row;
-        row -= g_crt.bottom / LineHeight;
+        row -= crt.bottom / LineHeight;
         row = max(row, 0);
         yPos = yPos - (oldRow - row) * LineHeight;
         yPos = max(yPos, 0);
@@ -489,11 +494,12 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
 
     case VK_NEXT:
         GetRowAndColumn(off, row, column);
+        GetClientRect(hWnd, &crt);
         oldRow = row;
-        row += g_crt.bottom / LineHeight;
+        row += crt.bottom / LineHeight;
         row = min(row, lineCount - 1);
         yPos = yPos + (row - oldRow) * LineHeight;
-        yPos = max(0, min(yPos, yMax - (g_crt.bottom / LineHeight) * LineHeight));
+        yPos = max(0, min(yPos, yMax - (crt.bottom / LineHeight) * LineHeight));
         // row = max(0, min(yPos, yMax - (g_crt.bottom / LineHeight) * LineHeight));
         InvalidateRect(hWnd, NULL, TRUE);
         SetScrollPos(hWnd, SB_VERT, yPos, TRUE);
@@ -724,7 +730,10 @@ LRESULT CustomEditWindow::OnMouseMove(WPARAM wParam, LPARAM lParam) {
     int row, column, start, end;
     BOOL bInstallTimer = FALSE;
 
-    if (y > g_crt.bottom) {
+    RECT crt;
+    GetClientRect(hWnd, &crt);
+
+    if (y > crt.bottom) {
         SendMessage(hWnd, WM_VSCROLL, SB_LINEDOWN, 0);
         bInstallTimer = TRUE;
     }
@@ -739,7 +748,7 @@ LRESULT CustomEditWindow::OnMouseMove(WPARAM wParam, LPARAM lParam) {
         start = lineInfo[row].start;
         end = lineInfo[row].end;
 
-        if (x > g_crt.right && SelectEnd != end) {
+        if (x > crt.right && SelectEnd != end) {
             SendMessage(hWnd, WM_HSCROLL, SB_LINERIGHT, 0);
             bInstallTimer = TRUE;
         }
@@ -863,6 +872,9 @@ LRESULT CustomEditWindow::OnHScroll(WPARAM wParam, LPARAM lParam) {
     SCROLLINFO si;
     int increase = 0;
 
+    RECT crt;
+    GetClientRect(hWnd, &crt);
+
     switch (LOWORD(wParam)) {
     case SB_LINELEFT:
         increase = -FontHeight;
@@ -873,11 +885,11 @@ LRESULT CustomEditWindow::OnHScroll(WPARAM wParam, LPARAM lParam) {
         break;
 
     case SB_PAGELEFT:
-        increase = -(g_crt.right - g_crt.left);
+        increase = -(crt.right - crt.left);
         break;
 
     case SB_PAGERIGHT:
-        increase = g_crt.right - g_crt.left;
+        increase = crt.right - crt.left;
         break;
 
     case SB_THUMBTRACK:
@@ -901,7 +913,10 @@ LRESULT CustomEditWindow::OnVScroll(WPARAM wParam, LPARAM lParam) {
     int per;
     SCROLLINFO si;
 
-    per = (g_crt.bottom / LineHeight) * LineHeight;
+    RECT crt;
+    GetClientRect(hWnd, &crt);
+
+    per = (crt.bottom / LineHeight) * LineHeight;
     increase = 0;
 
     switch (LOWORD(wParam)) {
@@ -1120,10 +1135,13 @@ void CustomEditWindow::SetCaret(BOOL bUpdatePrevX, BOOL bScrollToCaret) {
 
     // 스크롤바를 지원하면서부터 캐럿이 화면을 벗어났을 때 스크롤 되게끔 만들어야 한다.
     BOOL bScroll = FALSE;
+
+    RECT crt;
+    GetClientRect(hWnd, &crt);
     if (bScrollToCaret) {
         if (!g_Option.wordWrap && !g_Option.kjcCharWrap) {
-            if ((x + CARET_WIDTH > xPos + g_crt.right) || (x < xPos)) {
-                xPos = max(0, x - g_crt.right / 2);
+            if ((x + CARET_WIDTH > xPos + crt.right) || (x < xPos)) {
+                xPos = max(0, x - crt.right / 2);
                 bScroll = TRUE;
             }
         }
@@ -1133,8 +1151,8 @@ void CustomEditWindow::SetCaret(BOOL bUpdatePrevX, BOOL bScrollToCaret) {
             bScroll = TRUE;
         }
 
-        if (y + FontHeight > yPos + g_crt.bottom) {
-            int ty = (g_crt.bottom - FontHeight) / LineHeight * LineHeight;
+        if (y + FontHeight > yPos + crt.bottom) {
+            int ty = (crt.bottom - FontHeight) / LineHeight * LineHeight;
             yPos = y - ty;
             bScroll = TRUE;
         }
@@ -1456,11 +1474,11 @@ int CustomEditWindow::FindWrapPoint(int start, int end) {
     if (start >= end) { return start; }
 
     WCHAR* ptr = buf;
+    RECT crt;
+    GetClientRect(hWnd, &crt);
 
     int left = start + 1, right = end, fit = left;
-    int maxWidth = g_crt.right - g_crt.left - CARET_WIDTH;
-
-    // if (maxWidth < FontHeight * 4) { return; }
+    int maxWidth = crt.right - crt.left - CARET_WIDTH;
 
     while (left <= right) {
         int mid = (left + right) / 2;
@@ -1748,8 +1766,10 @@ void CustomEditWindow::TraceFormat(LPCWSTR format, ...)
 
 void CustomEditWindow::UpdateScrollInfo() {
     SCROLLINFO si;
+    RECT crt;
+    GetClientRect(hWnd, &crt);
 
-    int line = g_crt.bottom / LineHeight;
+    int line = crt.bottom / LineHeight;
     int needed = line / 2 + lineCount;
 
     yMax = needed * LineHeight;
@@ -1780,7 +1800,7 @@ void CustomEditWindow::UpdateScrollInfo() {
 
         xMax = (int)(MaxLength * FontWidth * 1.5);
         si.nMax = xMax;
-        si.nPage = g_crt.right;
+        si.nPage = crt.right;
         si.nPos = xPos;
         SetScrollInfo(hWnd, SB_HORZ, &si, TRUE);
     }
@@ -2041,7 +2061,9 @@ void CustomEditWindow::Invalidate(int idx1, int idx2 /* = -1 */) {
     // 다시 그릴 영역을 직접 지정하면 되는데 간단한 계산식으로 충분히 만들 수 있다.
     // 오프셋으로부터 픽셀 좌표를 계산하고 스크롤 값을 빼 화면상의 좌표를 얻어온다
 
-    RECT srt;
+    RECT srt, crt;
+    GetClientRect(hWnd, &crt);
+
     int x, y, y1, y2;
     if (idx1 == -1) {
         InvalidateRect(hWnd, NULL, FALSE);
@@ -2052,7 +2074,7 @@ void CustomEditWindow::Invalidate(int idx1, int idx2 /* = -1 */) {
     y1 = y - yPos;
 
     if (idx2 == -1) {
-        y2 = g_crt.bottom;
+        y2 = crt.bottom;
     }
     else {
         GetCoordinate(idx2, x, y);
@@ -2065,7 +2087,7 @@ void CustomEditWindow::Invalidate(int idx1, int idx2 /* = -1 */) {
     // y1 = max(y1, 0);
     // y2 = min(y2, g_crt.bottom);
 
-    SetRect(&srt, 0, y1, g_crt.right, y2);
+    SetRect(&srt, 0, y1, crt.right, y2);
     InvalidateRect(hWnd, &srt, FALSE);
 }
 

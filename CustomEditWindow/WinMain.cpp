@@ -79,6 +79,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
         g_EditWindow.Create(L"MyEditWindow", WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL, 0, crt.left, crt.top, crt.right, crt.bottom, hWnd, (HMENU)(INT_PTR)IDC_EDIT1);
         return 0;
         
+    case WM_SIZE:
+        if (wParam != SIZE_MINIMIZED) {
+            SetWindowPos(g_EditWindow.Window(), NULL, 0, 0, LOWORD(lParam), HIWORD(lParam), SWP_NOZORDER);
+        }
+        return 0;
+
     case WM_SETFOCUS:
         SetFocus(g_EditWindow.Window());
         return 0;
