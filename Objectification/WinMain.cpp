@@ -1,5 +1,4 @@
-﻿#include "pch.h"
-#include "CustomEditWindow.h"
+﻿#include "CustomEditWindow.h"
 #define CLASS_NAME L"MyEditClassTest"
 #define IDC_EDIT1 0x4001
 
@@ -33,13 +32,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 
 int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
     WNDCLASS wc = {
-        CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
+        CS_HREDRAW | CS_VREDRAW,
         WndProc,
         0,0,
         hInst,
         NULL, LoadCursor(NULL, IDC_ARROW),
-        // (HBRUSH)(COLOR_WINDOW + 1),
-        NULL,
+        (HBRUSH)(COLOR_WINDOW + 1),
         NULL,
         CLASS_NAME,
     };
@@ -50,7 +48,7 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
         0,
         CLASS_NAME,
         CLASS_NAME,
-        WS_OVERLAPPEDWINDOW,
+        WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS,
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
         NULL,
         (HMENU)NULL,
@@ -77,6 +75,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
     case WM_CREATE:
         GetClientRect(hWnd, &crt);
         g_EditWindow.Create(L"MyEditWindow", WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL, 0, crt.left, crt.top, crt.right, crt.bottom, hWnd, (HMENU)(INT_PTR)IDC_EDIT1);
+        return 0;
+
+    case WM_SIZE:
+        if(wParam != SIZE_MINIMIZED){
+            // 여기서 보면 알 수 있듯, 내부 컨트롤이 크기가 변했음에도 이를 인식하지 못하고 있다.
+            SetWindowPos(g_EditWindow.Window(), NULL, 0,0, LOWORD(lParam), HIWORD(lParam), SWP_NOZORDER);
+        }
+        return 0;
+        
+    case WM_SETFOCUS:
+        SetFocus(g_EditWindow.Window());
         return 0;
 
     case WM_DESTROY:

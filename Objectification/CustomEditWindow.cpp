@@ -1,4 +1,3 @@
-#include "pch.h"
 #include "CustomEditWindow.h"
 #define CARET_WIDTH 2
 
@@ -24,6 +23,7 @@ LRESULT CustomEditWindow::OnMessage(UINT iMessage, WPARAM wParam, LPARAM lParam)
 
 LRESULT CustomEditWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
     PAINTSTRUCT ps;
+    RECT crt;
     HDC hdc = BeginPaint(hWnd, &ps);
 
     // if (hBitmap == NULL) {
@@ -33,6 +33,7 @@ LRESULT CustomEditWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
     // HBITMAP bmp;
     // hBitmap->GetHBITMAP(Color(0, 0, 0, 0), &bmp);
 
+    GetClientRect(hWnd, &crt);
     if (hBitmap == NULL) {
         // hBitmap = CreateCompatibleBitmap(hdc, g_crt.right, g_crt.bottom);
 
@@ -75,7 +76,7 @@ LRESULT CustomEditWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
 
         LPBITMAPINFOHEADER lpInfo = &bmi->bmiHeader;
         lpInfo->biSize = sizeof(BITMAPINFOHEADER);
-        lpInfo->biWidth = g_crt.right;
+        lpInfo->biWidth = crt.right;
 
         // biHeight 멤버의 값을 음수 값으로 지정한다.
         // 기본적으로 비트맵은 Bottom-up 방향의 포맷을 가지는데
@@ -109,18 +110,18 @@ LRESULT CustomEditWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
     Bottom = min(Bottom, lineCount - 1);
 
     RECT lrt;
-    SetRect(&lrt, 0, 0, g_crt.right, LineHeight);
+    SetRect(&lrt, 0, 0, crt.right, LineHeight);
 
-    for (Line = Top; Line <= Bottom; Line++) {
+    for (Line = Start; Line <= Bottom; Line++) {
         FillRect(hMemDC, &lrt, hBrush);
         DrawLine(hMemDC, Line);
 
         // 줄 단위 더블 버퍼링 구조로 작성
-        BitBlt(hdc, 0, (Line - Top) * LineHeight, g_crt.right, LineHeight, hMemDC, 0, 0, SRCCOPY);
+        BitBlt(hdc, 0, (Line - Top) * LineHeight, crt.right, LineHeight, hMemDC, 0, 0, SRCCOPY);
     }
 
     // 남은 여백
-    SetRect(&lrt, 0, (Line - Top) * LineHeight, g_crt.right, g_crt.bottom);
+    SetRect(&lrt, 0, (Line - Top) * LineHeight, crt.right, crt.bottom);
     FillRect(hdc, &lrt, hBrush);
     // 알파 블렌딩 
     // BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
@@ -156,7 +157,6 @@ LRESULT CustomEditWindow::OnTimer(WPARAM wParam, LPARAM lParam) {
 
 LRESULT CustomEditWindow::OnSize(WPARAM wParam, LPARAM lParam) {
     if (wParam != SIZE_MINIMIZED) {
-        GetClientRect(hWnd, &g_crt);
         if (g_Option.wordWrap || g_Option.KeepPunctWithWord) {
             RebuildLineInfo();
         }
@@ -179,6 +179,7 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
     int row = 0, column = 0;
     int start = 0, end = 0, toff = 0;
     int oldRow = 0;
+    RECT crt;
 
     BOOL bShift, bCtrl;
     bShift = ((GetKeyState(VK_SHIFT) & 0x8000) != 0);
@@ -190,8 +191,9 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
         GetRowAndColumn(off, row, column);
         if (row > 0) {
             if (bCtrl) {
+                GetClientRect(hWnd, &crt);
                 SendMessage(hWnd, WM_VSCROLL, SB_LINEUP, 0);
-                if (row != (g_crt.bottom + yPos) / LineHeight) { break; }
+                if (row != (crt.bottom + yPos) / LineHeight) { break; }
             }
             toff = off;
             row--;
@@ -267,7 +269,7 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
             }
             else {
                 if (off == start) {
-                    if (buf[GetPrevOffset(off)] == '\r') {
+                    if (buf[GetPrevOffset(off)] == L'\r') {
                         off = GetPrevOffset(off);
                         bLineEnd = FALSE;
                     }
@@ -309,14 +311,14 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
             }
             else {
                 if (off == end) {
-                    if (buf[end] == '\r') {
+                    if (buf[end] == L'\r') {
                         off = GetNextOffset(off);
                     }
                     bLineEnd = FALSE;
                 }
                 else {
                     off = GetNextOffset(off);
-                    if (off == end && buf[off] != '\r') {
+                    if (off == end && buf[off] != L'\r') {
                         bLineEnd = TRUE;
                     }
                     else {
@@ -374,7 +376,7 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
                 start = lineInfo[row].start;
                 end = lineInfo[row].end;
 
-                if (column > 0 && off == end && buf[off] != '\r') {
+                if (column > 0 && off == end && buf[off] != L'\r') {
                     bLineEnd = FALSE;
                     Delete(off, 1);
                 }
@@ -453,7 +455,7 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
             off = GetOffset(row, 2147483647);
         }
 
-        if (buf[off] != '\r' && buf[off] != 0) {
+        if (buf[off] != L'\r' && buf[off] != 0) {
             bLineEnd = TRUE;
         }
 
@@ -468,8 +470,9 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
 
     case VK_PRIOR:
         GetRowAndColumn(off, row, column);
+        GetClientRect(hWnd, &crt);
         oldRow = row;
-        row -= g_crt.bottom / LineHeight;
+        row -= crt.bottom / LineHeight;
         row = max(row, 0);
         yPos = yPos - (oldRow - row) * LineHeight;
         yPos = max(yPos, 0);
@@ -489,12 +492,13 @@ LRESULT CustomEditWindow::OnKeyDown(WPARAM wParam, LPARAM lParam) {
 
     case VK_NEXT:
         GetRowAndColumn(off, row, column);
+        GetClientRect(hWnd, &crt);
         oldRow = row;
-        row += g_crt.bottom / LineHeight;
+        row += crt.bottom / LineHeight;
         row = min(row, lineCount - 1);
         yPos = yPos + (row - oldRow) * LineHeight;
-        yPos = max(0, min(yPos, yMax - (g_crt.bottom / LineHeight) * LineHeight));
-        // row = max(0, min(yPos, yMax - (g_crt.bottom / LineHeight) * LineHeight));
+        yPos = max(0, min(yPos, yMax - (crt.bottom / LineHeight) * LineHeight));
+        // row = max(0, min(yPos, yMax - (crt.bottom / LineHeight) * LineHeight));
         InvalidateRect(hWnd, NULL, TRUE);
         SetScrollPos(hWnd, SB_VERT, yPos, TRUE);
 
@@ -544,11 +548,11 @@ LRESULT CustomEditWindow::OnChar(WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
-    if ((ch < ' ' /* 제어코드(~32) */ && ch != '\r' && ch != '\t') || ch == 127 /* Ctrl + BS */) { return 0; }
+    if ((ch < L' ' /* 제어코드(~32) */ && ch != L'\r' && ch != L'\t') || ch == 127 /* Ctrl + BS */) { return 0; }
 
-    if (ch == '\r') {
-        Abuf[0] = '\r';
-        Abuf[1] = '\n';
+    if (ch == L'\r') {
+        Abuf[0] = L'\r';
+        Abuf[1] = L'\n';
         Abuf[2] = 0;
     }
     else {
@@ -578,12 +582,13 @@ LRESULT CustomEditWindow::OnImeChar(WPARAM wParam, LPARAM lParam) {
     Wbuf[1] = 0;
 
     if (bComp) {
-        off -= 2;
-        Delete(off, 1);
+        buf[off - 1] = Wbuf[0];
+    }
+    else {
+        Insert(off, Wbuf);
+        off += wcslen(Wbuf);
     }
 
-    Insert(off, Wbuf);
-    off += wcslen(Wbuf);
     bComp = FALSE;
     Invalidate(FindParagraphStart(off - wcslen(Wbuf)));
     SetCaret();
@@ -592,7 +597,7 @@ LRESULT CustomEditWindow::OnImeChar(WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT CustomEditWindow::OnImeComposition(WPARAM wParam, LPARAM lParam) {
-    int Length = 0;
+    int bytes = 0, Length = 0;
     HIMC hImc = NULL;
     WCHAR* Cbuf = NULL;
 
@@ -613,29 +618,51 @@ LRESULT CustomEditWindow::OnImeComposition(WPARAM wParam, LPARAM lParam) {
             }
         }
 
-        Length = ImmGetCompositionString(hImc, GCS_COMPSTR, NULL, 0);
-        Cbuf = (WCHAR*)malloc(sizeof(WCHAR) * (Length + 1));
-        memset(Cbuf, 0, sizeof(WCHAR) * (Length + 1));
-        ImmGetCompositionString(hImc, GCS_COMPSTR, Cbuf, Length);
-        Cbuf[Length] = 0;
+        // ImmGetCompositionString 함수가 반환하는 값은 문자열의 길이가 아니라 바이트 수이다.
+        // 이를 헷갈려 Length로 취급했는데 이를 고려하여 로직을 수정해야 한다.
+        bytes = ImmGetCompositionString(hImc, GCS_COMPSTR, NULL, 0);
 
-        if (bComp) {
-            off -= 2;
-            Delete(off, 1);
+        // 널 문자 고려, 2바이트 추가
+        if (Cbuf ==  NULL){
+            Cbuf = (WCHAR*)malloc(bytes + sizeof(WCHAR));
+            if (Cbuf) {
+                memset(Cbuf, 0, bytes);
+
+                ImmGetCompositionString(hImc, GCS_COMPSTR, Cbuf, bytes);
+
+                Length = bytes / sizeof(WCHAR);
+                Cbuf[Length] = 0;
+            }
         }
 
-        if (Length == 0) {
-            bComp = FALSE;
-        }
-        else {
-            bComp = TRUE;
+        if (Cbuf) {
+        
+            if (bComp && Length != 0) {
+                buf[off - 1] = Cbuf[0];
+            }
+            else {
+                if (bComp) {
+                    off -= 1;
+                    Delete(off, 1);
+
+                }
+
+                if (bytes == 0) {
+                    bComp = FALSE;
+                }
+                else {
+                    bComp = TRUE;
+                }
+
+                Insert(off, Cbuf);
+                off += Length;
+            }
         }
 
-        Insert(off, Cbuf);
-        off += Length;
         ImmReleaseContext(hWnd, hImc);
-        free(Cbuf);
+        if (Cbuf) { free(Cbuf); }
         Invalidate(FindParagraphStart(off - Length));
+
         SetCaret();
     }
 
@@ -701,7 +728,9 @@ LRESULT CustomEditWindow::OnMouseMove(WPARAM wParam, LPARAM lParam) {
     int row, column, start, end;
     BOOL bInstallTimer = FALSE;
 
-    if (y > g_crt.bottom) {
+    RECT crt;
+    GetClientRect(hWnd, &crt);
+    if (y > crt.bottom) {
         SendMessage(hWnd, WM_VSCROLL, SB_LINEDOWN, 0);
         bInstallTimer = TRUE;
     }
@@ -716,7 +745,7 @@ LRESULT CustomEditWindow::OnMouseMove(WPARAM wParam, LPARAM lParam) {
         start = lineInfo[row].start;
         end = lineInfo[row].end;
 
-        if (x > g_crt.right && SelectEnd != end) {
+        if (x > crt.right && SelectEnd != end) {
             SendMessage(hWnd, WM_HSCROLL, SB_LINERIGHT, 0);
             bInstallTimer = TRUE;
         }
@@ -815,7 +844,7 @@ LRESULT CustomEditWindow::OnContextMenu(WPARAM wParam, LPARAM lParam) {
     AppendMenu(hPopupMenu, MF_STRING, IDM_PASTE, L"붙여넣기(&P)");
     AppendMenu(hPopupMenu, MF_STRING, IDM_SELECTALL, L"모두선택(&A)");
 
-    if (IsClipboardFormatAvailable(CF_TEXT) == FALSE) {
+    if (IsClipboardFormatAvailable(CF_UNICODETEXT) == FALSE) {
         EnableMenuItem(hPopupMenu, IDM_PASTE, MF_BYCOMMAND | MF_GRAYED);
     }
 
@@ -840,6 +869,9 @@ LRESULT CustomEditWindow::OnHScroll(WPARAM wParam, LPARAM lParam) {
     SCROLLINFO si;
     int increase = 0;
 
+    RECT crt;
+    GetClientRect(hWnd, &crt);
+
     switch (LOWORD(wParam)) {
     case SB_LINELEFT:
         increase = -FontHeight;
@@ -850,11 +882,11 @@ LRESULT CustomEditWindow::OnHScroll(WPARAM wParam, LPARAM lParam) {
         break;
 
     case SB_PAGELEFT:
-        increase = -(g_crt.right - g_crt.left);
+        increase = -(crt.right - crt.left);
         break;
 
     case SB_PAGERIGHT:
-        increase = g_crt.right - g_crt.left;
+        increase = crt.right - crt.left;
         break;
 
     case SB_THUMBTRACK:
@@ -878,7 +910,9 @@ LRESULT CustomEditWindow::OnVScroll(WPARAM wParam, LPARAM lParam) {
     int per;
     SCROLLINFO si;
 
-    per = (g_crt.bottom / LineHeight) * LineHeight;
+    RECT crt;
+    GetClientRect(hWnd, &crt);
+    per = (crt.bottom / LineHeight) * LineHeight;
     increase = 0;
 
     switch (LOWORD(wParam)) {
@@ -925,6 +959,7 @@ LRESULT CustomEditWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
     HGLOBAL hMem;
     WCHAR* ptr;
     int SelectFirst, SelectSecond;
+    static BOOL bProcessing;
 
     switch (LOWORD(wParam)) {
     case IDM_CUT:
@@ -947,7 +982,7 @@ LRESULT CustomEditWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
             GlobalUnlock(hMem);
             if (OpenClipboard(hWnd)) {
                 EmptyClipboard();
-                SetClipboardData(CF_TEXT, hMem);
+                SetClipboardData(CF_UNICODETEXT, hMem);
                 CloseClipboard();
             }
         }
@@ -955,10 +990,10 @@ LRESULT CustomEditWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
 
     case IDM_PASTE:
         if (bCapture) { break; }
-        if (IsClipboardFormatAvailable(CF_TEXT)) {
+        if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
             DeleteSelection();
             OpenClipboard(hWnd);
-            hMem = GetClipboardData(CF_TEXT);
+            hMem = GetClipboardData(CF_UNICODETEXT);
             ptr = (WCHAR*)GlobalLock(hMem);
             Insert(off, ptr);
             GlobalUnlock(hMem);
@@ -994,7 +1029,7 @@ LRESULT CustomEditWindow::OnWindowPosChanged(WPARAM wParam, LPARAM lParam) {
 LRESULT CustomEditWindow::OnGetDlgCode(WPARAM wParam, LPARAM lParam) {
     LPMSG lpMsg = (LPMSG)lParam;
     if (lpMsg) {
-        if (lpMsg->message == WM_KEYDOWN && lpMsg->wParam == '\t' && bWantTab == FALSE) { return 0; }
+        if (lpMsg->message == WM_KEYDOWN && lpMsg->wParam == L'\t' && bWantTab == FALSE) { return 0; }
     }
 
     return DLGC_WANTARROWS | DLGC_WANTTAB | DLGC_WANTALLKEYS | DLGC_WANTCHARS;
@@ -1007,7 +1042,7 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
 
     Sum = 0;
     bWantTab = TRUE;
-    bufLength = 0x400;
+    bufLength = 10;
     docLength = 0;
     off = 0;
     bLineEnd = FALSE;
@@ -1016,7 +1051,7 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
     PrevX = 0;
     HangulCharWidth = 0;
     xMax = 0x400;
-    yMax = 0x400;
+    yMax = 0;
     xPos = yPos = 0;
     SelectStart = SelectEnd = 0;
     bCapture = FALSE;
@@ -1026,9 +1061,9 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
     buf = (WCHAR*)malloc(sizeof(WCHAR) * bufLength);
     if (buf != NULL) {
         memset(buf, 0, sizeof(WCHAR) * bufLength);
-        wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
-        // wcscpy_s(buf, bufLength, L"동해물과 백두산이 마르고 닳도록 하느님이 보우하사\r\nabcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz\r\n우리나라 만세 무궁화 삼천리 화려 강산 대한 사람 대한으로 길이 보전하세");
-        docLength = wcslen(buf);
+        // wcscpy_s(buf, bufLength, L"아 디버깅 하는거 힘듭니다 별 문제는 없는거 같습니다.\r\n동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세. 무궁화 삼천리 화려강산 대한사람 대한으로 길이 보전하세.\r\nabcdefghijklmnopqrstuvwxyz\r\nabcdefghijklmnopqrstuvwxyz\r\n");
+        
+        // docLength = off = wcslen(buf);
     }
     else {
         return -1;
@@ -1046,7 +1081,7 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
     PrecomputeCharWidths();
 
     TabWidth = 4;
-    TabSize = AsciiCharWidth[' '] * TabWidth;
+    TabSize = AsciiCharWidth[L' '] * TabWidth;
 
     LineRatio = 120;
     LineHeight = (int)(FontHeight * LineRatio / 100);
@@ -1086,7 +1121,7 @@ void CustomEditWindow::SetCaret(BOOL bUpdatePrevX, BOOL bScrollToCaret) {
     int toff, x, y;
     int caretWidth;
 
-    toff = bComp ? off - 2 : off;
+    toff = bComp ? off - 1 : off;
     caretWidth = bComp ? GetCharWidth(buf + toff, 1) : CARET_WIDTH;
 
     CreateCaret(hWnd, NULL, caretWidth, FontHeight);
@@ -1096,10 +1131,13 @@ void CustomEditWindow::SetCaret(BOOL bUpdatePrevX, BOOL bScrollToCaret) {
 
     // 스크롤바를 지원하면서부터 캐럿이 화면을 벗어났을 때 스크롤 되게끔 만들어야 한다.
     BOOL bScroll = FALSE;
+
+    RECT crt;
+    GetClientRect(hWnd, &crt);
     if (bScrollToCaret) {
         if (!g_Option.wordWrap && !g_Option.kjcCharWrap) {
-            if ((x + CARET_WIDTH > xPos + g_crt.right) || (x < xPos)) {
-                xPos = max(0, x - g_crt.right / 2);
+            if ((x + CARET_WIDTH > xPos + crt.right) || (x < xPos)) {
+                xPos = max(0, x - crt.right / 2);
                 bScroll = TRUE;
             }
         }
@@ -1109,8 +1147,8 @@ void CustomEditWindow::SetCaret(BOOL bUpdatePrevX, BOOL bScrollToCaret) {
             bScroll = TRUE;
         }
 
-        if (y + FontHeight > yPos + g_crt.bottom) {
-            int ty = (g_crt.bottom - FontHeight) / LineHeight * LineHeight;
+        if (y + FontHeight > yPos + crt.bottom) {
+            int ty = (crt.bottom - FontHeight) / LineHeight * LineHeight;
             yPos = y - ty;
             bScroll = TRUE;
         }
@@ -1153,7 +1191,7 @@ int CustomEditWindow::GetCharWidth(WCHAR* src, int length) {
     for (int i = 0; i < length; i++) {
         ch = (int)(*(src + i));
         if (ch < 128) {
-            if (ch == '\t') {
+            if (ch == L'\t') {
                 width = (width / TabSize + 1) * TabSize;
             }
             else {
@@ -1173,15 +1211,44 @@ BOOL CustomEditWindow::Insert(int idx, WCHAR* str) {
 
     int Needed = docLength + length + 1;
     if (Needed > bufLength) {
+        int prevLength = bufLength;
         bufLength = Needed + 0x400;
-        buf = (WCHAR*)realloc(buf, sizeof(WCHAR) * bufLength);
-        if (buf == NULL) { return FALSE; }
+
+        WCHAR* newBuf = (WCHAR*)realloc(buf, sizeof(WCHAR) * bufLength);
+        if (newBuf != NULL) {
+            memset(newBuf + prevLength, 0, sizeof(WCHAR) * (bufLength - prevLength));
+            buf = newBuf;
+        }
+        else {
+            // buf는 여전히 유효한 상태이므로 적당한 에러 처리 필요
+            DWORD dwError = GetLastError();
+            WCHAR Debug[0x200];
+
+            FormatMessage(
+                FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                NULL,
+                dwError,
+                0,
+                Debug,
+                0x200,
+                NULL
+            );
+
+            MessageBox(NULL, Debug, L"Allocation Failed", MB_ICONERROR | MB_OK);
+            return FALSE;
+        }
     }
 
-    int move = docLength + idx + length;
+    // 여태까지 move 변수의 계산을 잘못하고 있었다.
+    // 정확히는 docLength 변수를 추가할 때 식을 고치지 않고 그대로 사용했던게 문제였다.
+    // 범위 계산을 잘못한채로 memmove를 호출하여 Access Violation이 발생했던 것이다.
+    // 성능 최적화 목적으로 C는 배열 접근시 범위 검사(bound check)를 하지 않는데,
+    // 이 특성과 메모리가 연속적으로 할당되는 구조 특성이 맞물려 생긴 버그라고 볼 수 있다.
+    int move = docLength - idx;
     memmove(buf + idx + length, buf + idx, move * sizeof(WCHAR));
     memcpy(buf + idx, str, length * sizeof(WCHAR));
     docLength += length;
+    buf[docLength] = 0;
 
     int row, column, start, end;
     GetRowAndColumn(idx, row, column);
@@ -1191,7 +1258,7 @@ BOOL CustomEditWindow::Insert(int idx, WCHAR* str) {
 
     // bLineEnd = FALSE;
     if (g_Option.wordWrap) {
-        if (column > 0 && end == idx && buf[idx] != '\r' && bAlphaNum) {
+        if (column > 0 && end == idx && buf[idx] != L'\r' && bAlphaNum) {
             // 한글같은 조립형 문자의 경우 IME가 자동으로 캐럿 위치를 조정해준다.
             // 알파벳은 이러한 보정이 없으므로 직접 조정해야 한다
             bLineEnd = TRUE;
@@ -1214,11 +1281,15 @@ BOOL CustomEditWindow::Insert(int idx, WCHAR* str) {
 }
 
 BOOL CustomEditWindow::Delete(int idx, int cnt) {
+    if (cnt == 0) { return FALSE; }
     if (docLength < idx + cnt) { return FALSE; }
 
-    int move = docLength - idx - cnt + 1;
+    // 여기서도 NULL 문자를 고려하여 1만큼 더했는데 그럴 필요가 없다.
+    // memmove 연산에서는 이를 고려할 필요가 없으며 오히려 줄 끝에서 삭제 연산을 할 때 계산이 잘못될 가능성이 있다.
+    int move = docLength - idx - cnt;
     memmove(buf + idx, buf + idx + cnt, move * sizeof(WCHAR));
     docLength -= cnt;
+    buf[docLength] = 0;
 
     RebuildLineInfo(idx, -cnt);
     UpdateScrollInfo();
@@ -1226,7 +1297,7 @@ BOOL CustomEditWindow::Delete(int idx, int cnt) {
 }
 
 BOOL CustomEditWindow::IsCRLF(int idx) {
-    if (buf[idx] == '\r' && buf[idx + 1] == '\n') {
+    if (buf[idx] == L'\r' && buf[idx + 1] == L'\n') {
         return TRUE;
     }
     return FALSE;
@@ -1256,7 +1327,7 @@ void CustomEditWindow::GetLine(int line, int& start, int& end) {
             return;
         }
 
-        if (ptr[prevEnd] == '\r') {
+        if (ptr[prevEnd] == L'\r') {
             lineStart = prevEnd + 2;
         }
         else {
@@ -1268,7 +1339,7 @@ void CustomEditWindow::GetLine(int line, int& start, int& end) {
 
     while (1) {
         WCHAR ch = ptr[lineEnd];
-        if (ch == '\r' || ch == 0) { break; }
+        if (ch == L'\r' || ch == 0) { break; }
         lineEnd++;
     }
 
@@ -1314,7 +1385,7 @@ void CustomEditWindow::GetRowAndColumn(int idx, int& row, int& column) {
         }
 
         if (idx == end) {
-            if (ptr[end] == 0 || ptr[end] == '\r') {
+            if (ptr[end] == 0 || ptr[end] == L'\r') {
                 break;
             }
         }
@@ -1349,7 +1420,7 @@ void CustomEditWindow::GetCoordinate(int idx, int& x, int& y) {
 
     WCHAR* ptr = buf + start;
     while (ptr != buf + idx) {
-        if (*ptr == '\t') {
+        if (*ptr == L'\t') {
             // Tabsize;
             x = (x / TabSize + 1) * TabSize;
         }
@@ -1400,8 +1471,10 @@ int CustomEditWindow::FindWrapPoint(int start, int end) {
 
     WCHAR* ptr = buf;
 
+    RECT crt;
+    GetClientRect(hWnd, &crt);
     int left = start + 1, right = end, fit = left;
-    int maxWidth = g_crt.right - g_crt.left - CARET_WIDTH;
+    int maxWidth = crt.right - crt.left - CARET_WIDTH;
 
     // if (maxWidth < FontHeight * 4) { return; }
 
@@ -1531,8 +1604,9 @@ void CustomEditWindow::RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */
         if (!bAll && idx < end && lineInfo[curLine].start != -1) {
             // 1번 패턴 : 한 줄 내에서 편집이 발생한 경우
             // 현재 줄은 건너뛰고 다음 줄부터 length만큼 오프셋 증감
-            int i = curLine;
+            int i = 0;
             if (lineInfo[curLine].start + length == start && lineInfo[curLine].end + length == end) {
+                i = curLine;
                 while (lineInfo[i].start != -1) {
                     lineInfo[i].start += length;
                     lineInfo[i].end += length;
@@ -1557,6 +1631,7 @@ void CustomEditWindow::RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */
             // 이 값에 삭제된 문자("■■■ ")의 개수 4만큼 빼면 변화가 생긴 줄 curLine(29, 58)의 정보와 완전히 동일하다는 것을 알 수 있다.
             // 이 줄을 찾은 다음에는 이후의 줄에 똑같이 length만큼 오프셋 증감을 적용하면 간소화가 완료된다.
             if (lineInfo[curLine + 1].start + length == start && lineInfo[curLine + 1].end + length == end) {
+                i = curLine;
                 while (1) {
                     if (lineInfo[i + 1].start == -1) {
                         lineInfo[i].start = -1;
@@ -1617,13 +1692,13 @@ void CustomEditWindow::RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */
                 // 그다음 마지막 줄부터 현재 편집되고 있는 줄까지 뒤에서부터 차례대로 정보를 갱신하는데
                 // 앞에서부터 차례대로 정보를 갱신하면 어떤 일이 벌어질지 설명안해도 알 것이다.
                 lineInfo[lineCount + 1].start = -1;
-                for (i = lineCount; i > curLine; i--) {
+                for (i = lineCount; i >= curLine; i--) {
                     lineInfo[i].start = lineInfo[i - 1].start + length;
                     lineInfo[i].end = lineInfo[i - 1].end + length;
                 }
 
-                lineInfo[i].start = start;
-                lineInfo[i].end = end;
+                lineInfo[curLine].start = start;
+                lineInfo[curLine].end = end;
                 lineCount += 1;
                 break;
             }
@@ -1635,7 +1710,11 @@ void CustomEditWindow::RebuildLineInfo(int idx /* = -1 */, int length /* = -1 */
         lineInfo[curLine].start = start;
         lineInfo[curLine].end = end;
 
-        if (start == -1) { lineCount = curLine; break; }
+        if (start == -1) { 
+            lineCount = curLine;
+            break;
+        }
+
         curLine++;
     }
 }
@@ -1651,7 +1730,7 @@ int CustomEditWindow::GetDocsXPosOnLine(int row, int dest) {
 
     int Width = 0, len = 0;
     while (ptr - buf < end) {
-        if (*ptr == '\t') {
+        if (*ptr == L'\t') {
             Width = (Width / TabSize + 1) * TabSize;
         }
         else {
@@ -1663,7 +1742,7 @@ int CustomEditWindow::GetDocsXPosOnLine(int row, int dest) {
     }
 
     int ret = ptr - buf;
-    if (ret == end && buf[ret] != '\r' && buf[ret] != 0) {
+    if (ret == end && buf[ret] != L'\r' && buf[ret] != 0) {
         bLineEnd = TRUE;
     }
     else {
@@ -1673,6 +1752,7 @@ int CustomEditWindow::GetDocsXPosOnLine(int row, int dest) {
     return ret;
 }
 
+/*
 void CustomEditWindow::TraceFormat(LPCWSTR format, ...)
 {
     WCHAR buffer[512];
@@ -1682,11 +1762,14 @@ void CustomEditWindow::TraceFormat(LPCWSTR format, ...)
     va_end(args);
     OutputDebugString(buffer);
 }
+*/
 
 void CustomEditWindow::UpdateScrollInfo() {
     SCROLLINFO si;
 
-    int line = g_crt.bottom / LineHeight;
+    RECT crt;
+    GetClientRect(hWnd, &crt);
+    int line = crt.bottom / LineHeight;
     int needed = line / 2 + lineCount;
 
     yMax = needed * LineHeight;
@@ -1717,7 +1800,7 @@ void CustomEditWindow::UpdateScrollInfo() {
 
         xMax = (int)(MaxLength * FontWidth * 1.5);
         si.nMax = xMax;
-        si.nPage = g_crt.right;
+        si.nPage = crt.right;
         si.nPos = xPos;
         SetScrollInfo(hWnd, SB_HORZ, &si, TRUE);
     }
@@ -1742,7 +1825,7 @@ int CustomEditWindow::DrawLine(HDC hdc, int line) {
     while (1) {
         length = 0;
         while (1) {
-            if (buf[idx + length] == '\t') {
+            if (buf[idx + length] == L'\t') {
                 if (length == 0) { length = 1; }
                 if (SelectStart != SelectEnd && idx >= SelectFirst && idx < SelectSecond) {
                     bInSelect = TRUE;
@@ -1807,7 +1890,7 @@ void CustomEditWindow::DrawSegment(HDC hdc, int& x, int y, int idx, int length, 
     // 탭 사이즈를 구하는 공식이 무효해진다.
     // 따라서, x를 화면상의 좌표로 받아 간단히 출력하되
     // 탭 문자를 만난 경우에는 공식을 적용하기 위해 문서상의 좌표로 변환하고 다시 화면 좌표로 되돌려야 한다.
-    if (buf[idx] == '\t') {
+    if (buf[idx] == L'\t') {
         oldx = x;
         docx = x + xPos;
         docx = (docx / TabSize + 1) * TabSize;
@@ -1843,8 +1926,8 @@ void CustomEditWindow::DrawSegment(HDC hdc, int& x, int y, int idx, int length, 
 
         SetTextColor(hdc, fg);
         SetBkColor(hdc, bg);
-        TextOut(hdc, x, y, buf + idx, length);
 
+        TextOut(hdc, x, y, buf + idx, length);
         if (ignore == FALSE) {
             x += GetCharWidth(buf + idx, length);
         }
@@ -1869,7 +1952,7 @@ int CustomEditWindow::GetOffsetFromPoint(int x, int y) {
 
     WCHAR* ptr = buf + start;
     while (ptr - buf < end) {
-        if (*ptr == '\t') {
+        if (*ptr == L'\t') {
             chWidth = (acWidth / TabSize + 1) * TabSize - acWidth;
         }
         else {
@@ -1884,7 +1967,7 @@ int CustomEditWindow::GetOffsetFromPoint(int x, int y) {
     }
 
     int ret = ptr - buf;
-    if (ret == end && buf[ret] != '\r' && buf[ret] != 0) {
+    if (ret == end && buf[ret] != L'\r' && buf[ret] != 0) {
         bLineEnd = TRUE;
     }
     else {
@@ -1978,8 +2061,9 @@ void CustomEditWindow::Invalidate(int idx1, int idx2 /* = -1 */) {
     // 다시 그릴 영역을 직접 지정하면 되는데 간단한 계산식으로 충분히 만들 수 있다.
     // 오프셋으로부터 픽셀 좌표를 계산하고 스크롤 값을 빼 화면상의 좌표를 얻어온다
 
-    RECT srt;
+    RECT srt, crt;
     int x, y, y1, y2;
+    GetClientRect(hWnd, &crt);
     if (idx1 == -1) {
         InvalidateRect(hWnd, NULL, FALSE);
         return;
@@ -1989,7 +2073,7 @@ void CustomEditWindow::Invalidate(int idx1, int idx2 /* = -1 */) {
     y1 = y - yPos;
 
     if (idx2 == -1) {
-        y2 = g_crt.bottom;
+        y2 = crt.bottom;
     }
     else {
         GetCoordinate(idx2, x, y);
@@ -2002,12 +2086,12 @@ void CustomEditWindow::Invalidate(int idx1, int idx2 /* = -1 */) {
     // y1 = max(y1, 0);
     // y2 = min(y2, g_crt.bottom);
 
-    SetRect(&srt, 0, y1, g_crt.right, y2);
+    SetRect(&srt, 0, y1, crt.right, y2);
     InvalidateRect(hWnd, &srt, FALSE);
 }
 
 int CustomEditWindow::FindParagraphStart(int idx) {
-    int paraStart = idx;
+    int paraStart = idx - 1;
 
     while (paraStart > 0 && !IsCRLF(paraStart)) { paraStart--; }
     if (paraStart > 0) { paraStart += 2; }

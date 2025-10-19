@@ -75,7 +75,6 @@ public:
     }
     ~CustomEditWindow() 
     {
-    
     }
 
     LRESULT OnMessage(UINT iMessage, WPARAM wParam, LPARAM lParam);
@@ -120,7 +119,7 @@ private:
     };
     WrapOptions g_Option;
     enum WBPType { WBP_WORD, WBP_PUNCT };
-    RECT g_crt;
+    // RECT g_crt;
 
     // 줄 정보 관리 구조체
     struct LineInfo {
@@ -183,7 +182,7 @@ private:
     void GetCoordinate(int idx, int& x, int& y);
 
     // 디버깅 함수
-    void TraceFormat(LPCWSTR format, ...);
+    // void TraceFormat(LPCWSTR format, ...);
 
     // 자동 개행(문자셋)
     BOOL IsWhiteChar(WCHAR ch);
