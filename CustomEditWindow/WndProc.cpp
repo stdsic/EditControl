@@ -978,7 +978,7 @@ LRESULT OnContextMenu(HWND hWnd, WPARAM wParam, LPARAM lParam) {
     AppendMenu(hPopupMenu, MF_STRING, IDM_PASTE, L"붙여넣기(&P)");
     AppendMenu(hPopupMenu, MF_STRING, IDM_SELECTALL, L"모두선택(&A)");
 
-    if (IsClipboardFormatAvailable(CF_TEXT) == FALSE) {
+    if (IsClipboardFormatAvailable(CF_UNICODETEXT) == FALSE) {
         EnableMenuItem(hPopupMenu, IDM_PASTE, MF_BYCOMMAND | MF_GRAYED);
     }
 
@@ -1110,7 +1110,7 @@ LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam) {
             GlobalUnlock(hMem);
             if (OpenClipboard(hWnd)) {
                 EmptyClipboard();
-                SetClipboardData(CF_TEXT, hMem);
+                SetClipboardData(CF_UNICODETEXT, hMem);
                 CloseClipboard();
             }
         }
@@ -1118,10 +1118,10 @@ LRESULT OnCommand(HWND hWnd, WPARAM wParam, LPARAM lParam) {
 
     case IDM_PASTE:
         if (bCapture) { break; }
-        if (IsClipboardFormatAvailable(CF_TEXT)) {
+        if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
             DeleteSelection();
             OpenClipboard(hWnd);
-            hMem = GetClipboardData(CF_TEXT);
+            hMem = GetClipboardData(CF_UNICODETEXT);
             ptr = (WCHAR*)GlobalLock(hMem);
             Insert(off, ptr);
             GlobalUnlock(hMem);
@@ -1929,15 +1929,44 @@ BOOL Insert(int idx, WCHAR* str) {
 
     int Needed = docLength + length + 1;
     if (Needed > bufLength) {
+        int prevLength = bufLength;
         bufLength = Needed + 0x400;
-        buf = (WCHAR*)realloc(buf, sizeof(WCHAR) * bufLength);
-        if (buf == NULL) { return FALSE; }
+
+        WCHAR* newBuf = (WCHAR*)realloc(buf, sizeof(WCHAR) * bufLength);
+        if (newBuf != NULL) {
+            memset(newBuf + prevLength, 0, sizeof(WCHAR) * (bufLength - prevLength));
+            buf = newBuf;
+        }
+        else {
+            // buf는 여전히 유효한 상태이므로 적당한 에러 처리 필요
+            DWORD dwError = GetLastError();
+            WCHAR Debug[0x200];
+
+            FormatMessage(
+                FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                NULL,
+                dwError,
+                0,
+                Debug,
+                0x200,
+                NULL
+            );
+
+            MessageBox(NULL, Debug, L"Allocation Failed", MB_ICONERROR | MB_OK);
+            return FALSE;
+        }
     }
 
-    int move = docLength + idx + length;
+    // 여태까지 move 변수의 계산을 잘못하고 있었다.
+    // 정확히는 docLength 변수를 추가할 때 식을 고치지 않고 그대로 사용했던게 문제였다.
+    // 범위 계산을 잘못한채로 memmove를 호출하여 Access Violation이 발생했던 것이다.
+    // 성능 최적화 목적으로 C는 배열 접근시 범위 검사(bound check)를 하지 않는데,
+    // 이 특성과 메모리가 연속적으로 할당되는 구조 특성이 맞물려 생긴 버그라고 볼 수 있다.
+    int move = docLength - idx;
     memmove(buf + idx + length, buf + idx, move * sizeof(WCHAR));
     memcpy(buf + idx, str, length * sizeof(WCHAR));
     docLength += length;
+    buf[docLength] = 0;
 
     int row, column, start, end;
     GetRowAndColumn(idx, row, column);
@@ -1970,11 +1999,15 @@ BOOL Insert(int idx, WCHAR* str) {
 }
 
 BOOL Delete(int idx, int cnt) {
+    if (cnt == 0) { return FALSE; }
     if (docLength < idx + cnt) { return FALSE; }
 
-    int move = docLength - idx - cnt + 1;
+    // 여기서도 NULL 문자를 고려하여 1만큼 더했는데 그럴 필요가 없다.
+    // memmove 연산에서는 이를 고려할 필요가 없으며 오히려 줄 끝에서 삭제 연산을 할 때 계산이 잘못될 가능성이 있다.
+    int move = docLength - idx - cnt;
     memmove(buf + idx, buf + idx + cnt, move * sizeof(WCHAR));
     docLength -= cnt;
+    buf[docLength] = 0;
 
     RebuildLineInfo(idx, -cnt);
     UpdateScrollInfo();
