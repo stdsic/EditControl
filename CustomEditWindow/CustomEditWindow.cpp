@@ -619,41 +619,46 @@ LRESULT CustomEditWindow::OnImeComposition(WPARAM wParam, LPARAM lParam) {
         bytes = ImmGetCompositionString(hImc, GCS_COMPSTR, NULL, 0);
 
         // 널 문자 고려, 2바이트 추가
-        Cbuf = (WCHAR*)malloc(bytes + sizeof(WCHAR));
-        memset(Cbuf, 0, bytes);
-        ImmGetCompositionString(hImc, GCS_COMPSTR, Cbuf, bytes);
+        if (Cbuf ==  NULL){
+            Cbuf = (WCHAR*)malloc(bytes + sizeof(WCHAR));
+            if (Cbuf) {
+                memset(Cbuf, 0, bytes);
 
-        Length = bytes / sizeof(WCHAR);
-        Cbuf[Length] = 0;
+                ImmGetCompositionString(hImc, GCS_COMPSTR, Cbuf, bytes);
 
-        // TraceFormat(L"bytes = %d, Length = %d\r\n", bytes, Length);
-
-        if (bComp && Length != 0) {
-            buf[off - 1] = Cbuf[0];
-        }
-        else {
-            if (bComp) {
-                off -= 1;
-                Delete(off, 1);
-
+                Length = bytes / sizeof(WCHAR);
+                Cbuf[Length] = 0;
             }
+        }
 
-            if (bytes == 0) {
-                bComp = FALSE;
+        if (Cbuf) {
+        
+            if (bComp && Length != 0) {
+                buf[off - 1] = Cbuf[0];
             }
             else {
-                bComp = TRUE;
-            }
+                if (bComp) {
+                    off -= 1;
+                    Delete(off, 1);
 
-            Insert(off, Cbuf);
-            off += Length;
+                }
+
+                if (bytes == 0) {
+                    bComp = FALSE;
+                }
+                else {
+                    bComp = TRUE;
+                }
+
+                Insert(off, Cbuf);
+                off += Length;
+            }
         }
 
         ImmReleaseContext(hWnd, hImc);
-        free(Cbuf);
+        if (Cbuf) { free(Cbuf); }
         Invalidate(FindParagraphStart(off - Length));
 
-        // TODO: 여기 SetCaret 호출 후 GetCoordinate 반복문에서 액세스 오류 발생
         SetCaret();
     }
 
@@ -833,7 +838,7 @@ LRESULT CustomEditWindow::OnContextMenu(WPARAM wParam, LPARAM lParam) {
     AppendMenu(hPopupMenu, MF_STRING, IDM_PASTE, L"붙여넣기(&P)");
     AppendMenu(hPopupMenu, MF_STRING, IDM_SELECTALL, L"모두선택(&A)");
 
-    if (IsClipboardFormatAvailable(CF_TEXT) == FALSE) {
+    if (IsClipboardFormatAvailable(CF_UNICODETEXT) == FALSE) {
         EnableMenuItem(hPopupMenu, IDM_PASTE, MF_BYCOMMAND | MF_GRAYED);
     }
 
@@ -943,6 +948,7 @@ LRESULT CustomEditWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
     HGLOBAL hMem;
     WCHAR* ptr;
     int SelectFirst, SelectSecond;
+    static BOOL bProcessing;
 
     switch (LOWORD(wParam)) {
     case IDM_CUT:
@@ -965,7 +971,7 @@ LRESULT CustomEditWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
             GlobalUnlock(hMem);
             if (OpenClipboard(hWnd)) {
                 EmptyClipboard();
-                SetClipboardData(CF_TEXT, hMem);
+                SetClipboardData(CF_UNICODETEXT, hMem);
                 CloseClipboard();
             }
         }
@@ -973,12 +979,11 @@ LRESULT CustomEditWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
 
     case IDM_PASTE:
         if (bCapture) { break; }
-        if (IsClipboardFormatAvailable(CF_TEXT)) {
+        if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
             DeleteSelection();
             OpenClipboard(hWnd);
-            hMem = GetClipboardData(CF_TEXT);
+            hMem = GetClipboardData(CF_UNICODETEXT);
             ptr = (WCHAR*)GlobalLock(hMem);
-            if(bufLength + wcslen(ptr) + 1)
             Insert(off, ptr);
             GlobalUnlock(hMem);
             CloseClipboard();
@@ -1026,7 +1031,7 @@ LRESULT CustomEditWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
 
     Sum = 0;
     bWantTab = TRUE;
-    bufLength = 100;
+    bufLength = 10;
     docLength = 0;
     off = 0;
     bLineEnd = FALSE;
@@ -1188,21 +1193,48 @@ int CustomEditWindow::GetCharWidth(WCHAR* src, int length) {
 
 BOOL CustomEditWindow::Insert(int idx, WCHAR* str) {
     int length = wcslen(str);
-    // TraceFormat(L"str = %s, wcslen = %d\r\n", str, length);
     if (length == 0) { return FALSE; }
 
-    // TODO: 버퍼 오버런 발생
     int Needed = docLength + length + 1;
     if (Needed > bufLength) {
+        int prevLength = bufLength;
         bufLength = Needed + 0x400;
-        buf = (WCHAR*)realloc(buf, sizeof(WCHAR) * bufLength);
-        if (buf == NULL) { return FALSE; }
+
+        WCHAR* newBuf = (WCHAR*)realloc(buf, sizeof(WCHAR) * bufLength);
+        if (newBuf != NULL) {
+            memset(newBuf + prevLength, 0, sizeof(WCHAR) * (bufLength - prevLength));
+            buf = newBuf;
+        }
+        else {
+            // buf는 여전히 유효한 상태이므로 적당한 에러 처리 필요
+            DWORD dwError = GetLastError();
+            WCHAR Debug[0x200];
+
+            FormatMessage(
+                FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                NULL,
+                dwError,
+                0,
+                Debug,
+                0x200,
+                NULL
+            );
+
+            MessageBox(NULL, Debug, L"Allocation Failed", MB_ICONERROR | MB_OK);
+            return FALSE;
+        }
     }
 
-    int move = docLength + idx + length;
+    // 여태까지 move 변수의 계산을 잘못하고 있었다.
+    // 정확히는 docLength 변수를 추가할 때 식을 고치지 않고 그대로 사용했던게 문제였다.
+    // 범위 계산을 잘못한채로 memmove를 호출하여 Access Violation이 발생했던 것이다.
+    // 성능 최적화 목적으로 C는 배열 접근시 범위 검사(bound check)를 하지 않는데,
+    // 이 특성과 메모리가 연속적으로 할당되는 구조 특성이 맞물려 생긴 버그라고 볼 수 있다.
+    int move = docLength - idx;
     memmove(buf + idx + length, buf + idx, move * sizeof(WCHAR));
     memcpy(buf + idx, str, length * sizeof(WCHAR));
     docLength += length;
+    buf[docLength] = 0;
 
     int row, column, start, end;
     GetRowAndColumn(idx, row, column);
@@ -1238,7 +1270,8 @@ BOOL CustomEditWindow::Delete(int idx, int cnt) {
     if (cnt == 0) { return FALSE; }
     if (docLength < idx + cnt) { return FALSE; }
 
-    // int move = docLength - idx - cnt + 1;
+    // 여기서도 NULL 문자를 고려하여 1만큼 더했는데 그럴 필요가 없다.
+    // memmove 연산에서는 이를 고려할 필요가 없으며 오히려 줄 끝에서 삭제 연산을 할 때 계산이 잘못될 가능성이 있다.
     int move = docLength - idx - cnt;
     memmove(buf + idx, buf + idx + cnt, move * sizeof(WCHAR));
     docLength -= cnt;
@@ -1874,12 +1907,6 @@ void CustomEditWindow::DrawSegment(HDC hdc, int& x, int y, int idx, int length, 
         SetTextColor(hdc, fg);
         SetBkColor(hdc, bg);
 
-        // 버퍼 오버런의 이유를 찾았다.
-        // 정확히는 속도 문제이다.
-        // 메세지 드리븐 환경에서 입력이 빠르게 반복되면 같은 메세지나 이에 따른 함수가 똑같이 반복 호출된다.
-        // 콜백 함수인 WndProc은 운영체제에 의해 호출되는데 재진입 가능한 함수(Reentrant Function)이기 때문에
-        // 이전에 호출된 WndProc이 아직 처리되지 않은 상태에서 똑같은 메세지가 발생하면 동기적 처리가 불가능해 버퍼가 깨지는 상황이 발생할 수 있다.
-        // 고질적인 문제인데 이 부분은 어떻게 처리하면 좋을지 좀 더 고민해봐야겠다.
         TextOut(hdc, x, y, buf + idx, length);
         if (ignore == FALSE) {
             x += GetCharWidth(buf + idx, length);

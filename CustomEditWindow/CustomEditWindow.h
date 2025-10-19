@@ -75,7 +75,6 @@ public:
     }
     ~CustomEditWindow() 
     {
-    
     }
 
     LRESULT OnMessage(UINT iMessage, WPARAM wParam, LPARAM lParam);
